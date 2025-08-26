@@ -123,11 +123,10 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   };
 
   const showModal = useCallback((value: any, row: any, field: string) => {
-    if (viewMode !== 'number') return; // 機種別ではセル編集しない
     setSelectedCell({ value, rowData: row, field });
     setSelectedFlag(null);
     setModalOpen(true);
-  }, [viewMode]);
+  }, []);
 
   const loadDates = async (dates: string[]) => {
     const raw = await fetchSlotDiffs(storeId, dates);
@@ -216,7 +215,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     setRowData(groupedRows);
 
     // 機種名（name優先、なければmodelName）＋日付列（降順）
-    const groupedCols = buildGroupedColumnsForDates(loaded, []);
+    const groupedCols = buildGroupedColumnsForDates(loaded, [], showModal);
     setColumnDefs(groupedCols);
   };
 
@@ -342,22 +341,72 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
       <Modal
         open={modalOpen}
         onCancel={() => setModalOpen(false)}
-        // Modal の onOk 内の「更新処理」をまるっと置き換え
         onOk={async () => {
           if (!selectedCell || selectedFlag === null) return;
 
-          const docId = `${storeId}_${selectedCell.field}`;
+          const dateField = selectedCell.field; // YYYYMMDD
           const db = getFirestore();
-          const ref = doc(db, 'slot_diff', docId);
+          const ref = doc(db, 'slot_diff', `${storeId}_${dateField}`);
           const snap = await getDoc(ref);
           if (!snap.exists()) return;
 
           const data = snap.data().data;
-          const targetName = selectedCell.rowData.name;         // ← 既存のまま（完全一致でOKという前提）
-          const dataKey    = selectedCell.rowData.dataKey;      // ← 個別更新用
-          const originalFlag = selectedCell?.rowData?.flag?.[selectedCell.field] ?? 0;
+          const targetName = selectedCell.rowData.name ?? selectedCell.rowData.modelName ?? '';
+          const dataKey    = selectedCell.rowData.dataKey;
+          const originalFlag = selectedCell?.rowData?.flag?.[dateField] ?? 0;
 
-          // まとめて更新するためのオペレーション配列を作る
+          // 台番別と機種別で分岐
+          if (viewMode === 'model') {
+            // ★ 機種別：同一機種名の全台を selectedFlag（9 or 0）で一括更新
+            if (![9, 0].includes(selectedFlag)) return;
+
+            const ops: Array<{ path: FieldPath; value: any }> = [];
+            Object.entries(data).forEach(([key, val]: [string, any]) => {
+              if (val.name === targetName) {
+                ops.push({ path: new FieldPath('data', key, 'flag'), value: selectedFlag });
+              }
+            });
+
+            if (ops.length === 0) {
+              setModalOpen(false);
+              return;
+            }
+
+            if (ops.length === 1) {
+              await updateDoc(ref, ops[0].path, ops[0].value);
+            } else {
+              const batch = writeBatch(db);
+              ops.forEach(op => batch.update(ref, op.path, op.value));
+              await batch.commit();
+            }
+
+            // ローカル反映（台番別の元データ／現在表示データ／機種別行）
+            numberRowDataRef.current.forEach((row: any) => {
+              if (row?.name !== targetName) return;
+              if (!row.flag) row.flag = {};
+              row.flag[dateField] = selectedFlag;
+            });
+            rowDataRef.current.forEach((row: any) => {
+              if (row?.name !== targetName) return;
+              if (!row.flag) row.flag = {};
+              row.flag[dateField] = selectedFlag;
+            });
+            setRowData(prev =>
+              prev.map((r: any) => {
+                const nm = r.name ?? r.modelName;
+                if (nm !== targetName) return r;
+                const next = { ...r, flag: { ...(r.flag ?? {}) } };
+                next.flag[dateField] = selectedFlag;
+                return next;
+              })
+            );
+
+            setModalOpen(false);
+            gridRef.current?.api?.refreshCells({ force: true });
+            return;
+          }
+
+          // ★ ここから先は従来の「台番別」ロジック（既存と同等）
           const ops: Array<{ path: FieldPath; value: any }> = [];
 
           // 1) 全台系 → フラグ解除（同機種すべて 0）
@@ -381,7 +430,6 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
             ops.push({ path: new FieldPath('data', dataKey, 'flag'), value: selectedFlag });
           }
 
-          // 実行：1件なら updateDoc( FieldPath, value ) 形式、複数なら batch.update
           if (ops.length === 1) {
             await updateDoc(ref, ops[0].path, ops[0].value);
           } else if (ops.length > 1) {
@@ -392,56 +440,51 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
 
           setModalOpen(false);
 
-          // 画面側へ反映（ローカル rowData も更新）— 既存ロジックそのまま
+          // 画面側へ反映
           const api = gridRef.current?.api;
           if (!api) return;
-          const field = selectedCell.field;
+          const field = dateField;
 
-          // rowDataRef を使っている場合
-          if (typeof rowDataRef !== 'undefined') {
-            rowDataRef.current.forEach((row: any) => {
-              if (!row.flag) row.flag = {};
-              if (originalFlag === 9 && selectedFlag === 0 && row.name === targetName) {
-                row.flag[field] = 0;
-              } else if (selectedFlag === 9 && row.name === targetName) {
-                row.flag[field] = 9;
-              } else if (row.dataKey === dataKey) {
-                row.flag[field] = selectedFlag;
-              }
-            });
-          }
+          rowDataRef.current.forEach((row: any) => {
+            if (!row.flag) row.flag = {};
+            if (originalFlag === 9 && selectedFlag === 0 && row.name === targetName) {
+              row.flag[field] = 0;
+            } else if (selectedFlag === 9 && row.name === targetName) {
+              row.flag[field] = 9;
+            } else if (row.dataKey === dataKey) {
+              row.flag[field] = selectedFlag;
+            }
+          });
 
-          // numberRowDataRef を使っている構成ならこちらを使用
-          if (typeof numberRowDataRef !== 'undefined') {
-            numberRowDataRef.current.forEach((row: any) => {
-              if (!row.flag) row.flag = {};
-              if (originalFlag === 9 && selectedFlag === 0 && row.name === targetName) {
-                row.flag[field] = 0;
-              } else if (selectedFlag === 9 && row.name === targetName) {
-                row.flag[field] = 9;
-              } else if (row.dataKey === dataKey) {
-                row.flag[field] = selectedFlag;
-              }
-            });
-          }
+          numberRowDataRef.current.forEach((row: any) => {
+            if (!row.flag) row.flag = {};
+            if (originalFlag === 9 && selectedFlag === 0 && row.name === targetName) {
+              row.flag[field] = 0;
+            } else if (selectedFlag === 9 && row.name === targetName) {
+              row.flag[field] = 9;
+            } else if (row.dataKey === dataKey) {
+              row.flag[field] = selectedFlag;
+            }
+          });
 
           api.refreshCells({ force: true });
         }}
 
+
         title="フラグ設定"
       >
         <p>台番号: {selectedCell?.rowData?.machineNumber}</p>
+        <p>機種名: {selectedCell?.rowData?.name ?? selectedCell?.rowData?.modelName}</p>
         <p>日付: {selectedCell?.field}</p>
         <Radio.Group
           onChange={(e) => setSelectedFlag(Number(e.target.value))}
           value={selectedFlag}
-          disabled={viewMode !== 'number'}
         >
-          <Radio value={9}>全台系</Radio>
-          <Radio value={6}>設定6</Radio>
-          <Radio value={5}>設定56</Radio>
-          <Radio value={4}>設定456</Radio>
-          <Radio value={0}>フラグ解除</Radio>
+          <Radio value={9} disabled={false}>全台系</Radio>
+          <Radio value={6} disabled={viewMode === 'model'}>設定6</Radio>
+          <Radio value={5} disabled={viewMode === 'model'}>設定56</Radio>
+          <Radio value={4} disabled={viewMode === 'model'}>設定456</Radio>
+          <Radio value={0} disabled={false}>フラグ解除</Radio>
         </Radio.Group>
       </Modal>
     </>
@@ -540,8 +583,11 @@ function getDisplayName(name: string): string {
 }
 
 // ========= 機種別（平均）columns =========
-function buildGroupedColumnsForDates(dates: string[], existing: ColDef[]): ColDef[] {
-  const existingFields = new Set(existing.map(c => c.field));
+function buildGroupedColumnsForDates(
+  dates: string[],
+  existing: ColDef[],
+  showModal: (value: any, row: any, field: string) => void
+): ColDef[] {  const existingFields = new Set(existing.map(c => c.field));
   const cols: ColDef[] = [];
 
   if (!existingFields.has('name')) {
@@ -564,45 +610,46 @@ function buildGroupedColumnsForDates(dates: string[], existing: ColDef[]): ColDe
   const sortedDates = [...dates].sort((a, b) => b.localeCompare(a));
 
   const dynamic: ColDef[] = sortedDates
-    .filter(d => !existingFields.has(d))
-    .map((d) => ({
-      headerName: formatDate(d),
-      field: d,
-      width: 60,
-      cellRenderer: 'customCellRenderer',
-      cellRendererParams: { showModal: () => {} }, // 機種別ではモーダル非活性
-      cellStyle: (params) => {
-        const v = params.value;
-        const row = params.data;
-        const field = params.colDef.field as string;
+  .filter(d => !existingFields.has(d))
+  .map((d) => ({
+    headerName: formatDate(d),
+    field: d,
+    width: 60,
+    cellRenderer: 'customCellRenderer',
+    // ★ 機種別でもダブルタップでモーダル起動
+    cellRendererParams: { showModal },
+    cellStyle: (params) => {
+      const v = params.value;
+      const row = params.data;
+      const field = params.colDef.field as string;
 
-        const flag = row?.flag?.[field];
+      const flag = row?.flag?.[field];
 
-        let color = '#333';
-        if (typeof v === 'number') {
-          if (v > 0) color = '#4c6cb3';
-          else if (v < 0) color = '#d9333f';
-        }
-
-        let backgroundColor: string | undefined;
-        switch (flag) {
-          case 9: backgroundColor = '#FFBFC7'; break;
-          case 6: backgroundColor = '#5bd799'; break;
-          case 5: backgroundColor = '#D3B9DE'; break;
-          case 4: backgroundColor = '#FFE899'; break;
-        }
-
-        return {
-          color,
-          fontSize: '0.8em',
-          padding: 0,
-          fontWeight: 'bold',
-          textAlign: 'center',
-          borderRight: '1px solid #ccc',
-          backgroundColor,
-        } as any;
+      let color = '#333';
+      if (typeof v === 'number') {
+        if (v > 0) color = '#4c6cb3';
+        else if (v < 0) color = '#d9333f';
       }
-    }));
+
+      let backgroundColor: string | undefined;
+      switch (flag) {
+        case 9: backgroundColor = '#FFBFC7'; break;
+        case 6: backgroundColor = '#5bd799'; break;
+        case 5: backgroundColor = '#D3B9DE'; break;
+        case 4: backgroundColor = '#FFE899'; break;
+      }
+
+      return {
+        color,
+        fontSize: '0.8em',
+        padding: 0,
+        fontWeight: 'bold',
+        textAlign: 'center',
+        borderRight: '1px solid #ccc',
+        backgroundColor,
+      } as any;
+    }
+  }));
 
   return [...cols, ...dynamic];
 }
