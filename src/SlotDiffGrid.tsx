@@ -26,6 +26,9 @@ import { SelectChangeEvent } from '@mui/material/Select';
 import Box from '@mui/material/Box';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
+import { Button } from '@mui/material';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -245,6 +248,182 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
 
   const tabValue = viewMode === 'number' ? 0 : 1;
 
+  // ===== CSVユーティリティ（api不使用）ここから =====
+  const escapeCsv = (val: any): string => {
+    if (val == null) return '';
+    const s = String(val);
+    return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+
+  // columnDefs から「表示カラム」のみを順序通りに取得
+  const pickVisibleColDefs = (colDefs: any[]) => {
+    const flat = (defs: any[], acc: any[] = []): any[] =>
+      defs.reduce((a, d) => {
+        if (Array.isArray(d.children) && d.children.length) return flat(d.children, a);
+        a.push(d);
+        return a;
+      }, acc);
+
+    const defs = flat(colDefs ?? []);
+    // 非表示/グループ/ピボットなどは除外（必要に応じて調整）
+    return defs.filter((d) => d && d.hide !== true && !d.rowGroup && !d.pivot);
+  };
+
+  // valueGetter → field → colId の順で値を取り、valueFormatter があれば適用
+  const getCellValueFromDef = (def: any, row: any): any => {
+    // valueGetter (function) を評価
+    if (typeof def?.valueGetter === 'function') {
+      try {
+        const params = {
+          data: row,
+          colDef: def,
+          // 最低限の getValue を提供（別フィールド参照用）
+          getValue: (field: string) => (row ? row[field] : undefined),
+        };
+        return def.valueGetter(params);
+      } catch { /* ignore */ }
+    }
+    // field
+    if (def?.field) return row ? row[def.field] : undefined;
+    // colId をフォールバックキーに
+    if (def?.colId) return row ? row[def.colId] : undefined;
+    return undefined;
+  };
+
+  const applyValueFormatterFromDef = (def: any, row: any, value: any) => {
+    if (typeof def?.valueFormatter === 'function') {
+      try {
+        const params = { value, data: row, colDef: def };
+        return def.valueFormatter(params);
+      } catch { /* ignore */ }
+    }
+    return value;
+  };
+
+  // rows: 画面に渡している配列（フィルタ/ソート後のもの）
+  // colDefs: 実際に <AgGridReact columnDefs={...} /> に渡している配列
+  const buildCsvFromProps = (rows: any[], colDefs: any[]): string => {
+    const visibleDefs = pickVisibleColDefs(colDefs);
+    const headers = visibleDefs.map(
+      (d) => d.headerName ?? d.field ?? d.colId ?? ''
+    );
+
+    const lines: string[] = [];
+    lines.push(headers.map(escapeCsv).join(','));
+
+    (rows ?? []).forEach((row) => {
+      const vals = visibleDefs.map((def) => {
+        const raw = getCellValueFromDef(def, row);
+        const formatted = applyValueFormatterFromDef(def, row, raw);
+        return escapeCsv(formatted);
+      });
+      lines.push(vals.join(','));
+    });
+
+    return lines.join('\r\n');
+  };
+
+  const downloadCsv = (csv: string, baseName = 'export') => {
+    const bom = '\uFEFF'; // Excel 文字化け対策
+    const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8;' });
+    const filename = `${baseName}.csv`;
+    if ((window.navigator as any).msSaveOrOpenBlob) {
+      (window.navigator as any).msSaveOrOpenBlob(blob, filename);
+    } else {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+  };
+  // ===== CSVユーティリティここまで =====
+
+  // 例: これをクリックで呼ぶ（rowData と columnDefs はこのコンポーネント内に既にある想定）
+  const handleExportCsv = () => {
+    // ★ 重要：ここに「実際に <AgGridReact rowData={...}> に渡している配列」を入れてください。
+    // 例）rowData が既にフィルタ/ソート後の配列ならそのまま使えます。
+    const rowsForGrid = rowData;              // ← あなたの変数名に合わせて置換
+    const colDefsForGrid = columnDefs;        // ← あなたの変数名に合わせて置換
+
+    const csv = buildCsvFromProps(rowsForGrid, colDefsForGrid);
+    downloadCsv(csv, `slot-diff_${new Date().toISOString().slice(0,10)}`);
+  };
+
+  const handleExportXlsx = async () => {
+    if (!window.confirm('表示データのExcelファイルを出力します。よろしいですか？')) return;
+  
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Sheet1');
+  
+    // ヘッダ行
+    const visibleDefs = columnDefs.filter((d: any) => !d.hide && !d.rowGroup && !d.pivot);
+    const headers = visibleDefs.map((d: any) => d.headerName ?? d.field ?? d.colId ?? '');
+    worksheet.addRow(headers);
+  
+    // データ行
+    rowData.forEach((row: any) => {
+      const rowVals = visibleDefs.map((def: any) => {
+        const val =
+          typeof def.valueGetter === 'function'
+            ? def.valueGetter({ data: row, colDef: def, getValue: (f: string) => row[f] })
+            : def.field
+            ? row[def.field]
+            : def.colId
+            ? row[def.colId]
+            : '';
+        return val;
+      });
+  
+      const addedRow = worksheet.addRow(rowVals);
+  
+      // 各セルの cellStyle を確認して背景色を適用
+      visibleDefs.forEach((def: any, i: number) => {
+        let bgColor: string | undefined;
+  
+        if (typeof def.cellStyle === 'object' && def.cellStyle.backgroundColor) {
+          bgColor = def.cellStyle.backgroundColor;
+        } else if (typeof def.cellStyle === 'function') {
+          try {
+            const styleObj = def.cellStyle({ value: row[def.field], data: row, colDef: def });
+            if (styleObj && styleObj.backgroundColor) {
+              bgColor = styleObj.backgroundColor;
+            }
+          } catch {
+            // ignore
+          }
+        }
+  
+        if (bgColor) {
+          // ExcelJSはARGB形式 (例: 'FFFF0000' → 赤)。CSS形式(#RRGGBB)を変換
+          const hex = bgColor.replace('#', '');
+          const argb =
+            hex.length === 6
+              ? `FF${hex.toUpperCase()}` // 先頭にアルファ値FFを追加
+              : hex.length === 8
+              ? hex.toUpperCase()
+              : undefined;
+  
+          if (argb) {
+            const cell = addedRow.getCell(i + 1);
+            cell.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb },
+            };
+          }
+        }
+      });
+    });
+  
+    // ダウンロード
+    const buffer = await workbook.xlsx.writeBuffer();
+    saveAs(new Blob([buffer]), `slot-diff_${new Date().toISOString().slice(0,10)}.xlsx`);
+  };
+
   return (
     <>
       {/* 上部タブ */}
@@ -310,7 +489,8 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
       </div>
 
       {/* フィルタ（機種名） */}
-      <FormControl variant="outlined" style={{ width: 240, marginTop: 6, height: "5vh" }} fullWidth>
+      <div style={{ marginTop: 6, height: "5vh" }}>
+      <FormControl variant="outlined"  fullWidth style={{ width: 240 }}>
         <Select
           labelId="machine-select-label"
           value={selectedName}
@@ -336,6 +516,16 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
             ))}
         </Select>
       </FormControl>
+
+      <Button
+        variant="contained"
+        color="primary"
+        onClick={handleExportXlsx}
+        style={{  padding: "3px 12px", marginLeft: 10 }}
+      >
+        Excel出力
+      </Button>
+      </div>
 
       {/* モーダル（台番別のみ） */}
       <Modal
