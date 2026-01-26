@@ -24,8 +24,12 @@ export async function fetchSlotDiffs(storeId: string, dates: string[]) {
   snapshot.forEach(doc => {
     const data = doc.data();
     // 🔑 Firestore 側の date は number なので string に戻す
-    dataMap[data.date.toString()] = data.data;
-  });
+    dataMap[data.date.toString()] = Object.values(data.data as any).map((v: any) => ({
+      ...v,
+      url: data.sourceUrl
+        ? `${data.sourceUrl}${data.sourceUrl.includes('?') ? '&' : '?'}num=${v.machineNumber}`
+        : undefined,
+    }));  });
 
   return dataMap;
 }

@@ -1,56 +1,72 @@
 export function transformToGridData(latest: any, allData: Record<string, any>) {
-    const rowMap: Record<string, any> = {};
-    const latestKeys = new Set(Object.keys(latest)); // 最新日のキーを取得
+  const rowMap: Record<string, any> = {};
+  const latestKeys = new Set(Object.keys(latest)); // 最新日のキーを取得
   
-    for (const date in allData) {
-      const data = allData[date];
-      for (const key in data) {
-        const item = data[key];
-        const rowId = `${item.machineNumber}_${item.name}`;
-  
-        // 初回登録
-        if (!rowMap[rowId]) {
-          rowMap[rowId] = {
-            id: rowId,
-            machineNumber: item.machineNumber,
-            name: item.name,
-            dataKey: key, // ← ここを追加
-          };
-        }
-  
-        // 🔧 修正: flagオブジェクトの初期化
-        if (!rowMap[rowId].flag) rowMap[rowId].flag = {};
+  for (const date in allData) {
+    const data = allData[date];
+    for (const key in data) {
+      const item = data[key];
+      const rowId = `${item.machineNumber}_${item.name}`;
 
-        // 日付ごとの差枚データを埋める
-        rowMap[rowId][date] = item.diff ?? '-';
+      // 初回登録
+      if (!rowMap[rowId]) {
+        rowMap[rowId] = {
+          id: rowId,
+          machineNumber: item.machineNumber,
+          name: item.name,
+          dataKey: key,
+        };
+      }
 
-        // 🔧 修正: 日付ごとの flag を格納
-        rowMap[rowId].flag[date] = item.flag ?? undefined;
-      }
+      if (!rowMap[rowId].flag) rowMap[rowId].flag = {};
+      if (!rowMap[rowId].urls) rowMap[rowId].urls = {};
+
+      // 日付ごとの差枚データ
+      rowMap[rowId][date] = item.diff ?? '-';
+      rowMap[rowId].flag[date] = item.flag ?? undefined;
+      rowMap[rowId].urls[date] = item.url ?? undefined;
+
     }
-  
-    // 最新日付のデータが存在する行のみ抽出
-    const filteredRows = Object.values(rowMap).filter((row: any) => {
-      const latestDate = Object.keys(allData).pop(); // 最も新しい日付
-      return latestDate && row[latestDate] !== undefined;
-    });
-  
-    // 台番号で昇順ソート（文字列→数値）
-    filteredRows.sort((a: any, b: any) => parseInt(a.machineNumber) - parseInt(b.machineNumber));
-  
-    // 合計差枚の行を構築
-    const totalRow: any = { id: '__total__', isTotalRow: true, name:'総差枚' };
-    for (const date in allData) {
-      let sum = 0;
-      for (const key in allData[date]) {
-        const d = allData[date][key].diff;
-        if (typeof d === 'number') sum += d;
-      }
-      totalRow[date] = sum === 0 ? '-' : sum;
-    }
-  
-    return [totalRow, ...filteredRows];
   }
+
+  // ✅ フィルタ削除：全台表示
+  const rows = Object.values(rowMap);
+
+  // ✅ 最新日付にデータがある台を下にソート
+const latestDate = Object.keys(allData).sort().pop();
+
+rows.sort((a: any, b: any) => {
+  const isMissing = (v: any) =>
+    v === undefined || v === null || v === '-' /* || v === 0 */; 
+  // ※ 0を“欠損”として下げたい場合はコメントアウトを外してください
+
+  const aMissing = latestDate ? isMissing(a[latestDate]) : false;
+  const bMissing = latestDate ? isMissing(b[latestDate]) : false;
+
+  if (aMissing && !bMissing) return 1;   // 欠損は下へ
+  if (!aMissing && bMissing) return -1;  // データある方を上へ
+
+  // 台番号で昇順（数値 → 文字列フォールバック）
+  const am = Number(a.machineNumber);
+  const bm = Number(b.machineNumber);
+  if (Number.isFinite(am) && Number.isFinite(bm)) return am - bm;
+  return String(a.machineNumber).localeCompare(String(b.machineNumber), 'ja') ||
+         String(a.name).localeCompare(String(b.name), 'ja');
+});
+
+  // 合計差枚行
+  const totalRow: any = { id: '__total__', isTotalRow: true, name: '総差枚' };
+  for (const date in allData) {
+    let sum = 0;
+    for (const key in allData[date]) {
+      const d = allData[date][key].diff;
+      if (typeof d === 'number') sum += d;
+    }
+    totalRow[date] = sum === 0 ? '-' : sum;
+  }
+
+  return [totalRow, ...rows];
+}
 
 // dataTransformer.ts
 // latest: 最新日付の { [dataKey]: item } マップ（item は name, machineNumber, diff, flag など）

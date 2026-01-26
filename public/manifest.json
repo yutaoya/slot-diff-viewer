@@ -25,7 +25,8 @@
   "shortcuts": [
     { "name": "マルハン 浜松中央", "url": "/maruhan_chuou" },
     { "name": "SUPER CONCORDE 市野", "url": "/concorde_ichino" },
-    { "name": "楽園 ザザシティ", "url": "/rakuen_zaza" }
+    { "name": "楽園 ザザシティ", "url": "/rakuen_zaza" },
+    { "name": "FROWER CONCORDE 木戸", "url": "/concorde_kido" }
 
   ]
 }

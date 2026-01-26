@@ -65,6 +65,8 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedCell, setSelectedCell] = useState<{ rowData: any; field: string; value: any } | null>(null);
   const [selectedFlag, setSelectedFlag] = useState<number | null>(null);
+  const [selectedCellUrl, setselectedCellUrl] = useState<string | null>(null);
+
 
   // 機種名フィルタ
   const [selectedName, setSelectedName] = useState<string>("");
@@ -73,7 +75,25 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const rawMapRef = useRef<Record<string, any>>({});
 
   const rowDataRef = useRef<any[]>([]);  // ★ 追加
+  const pendingScrollRestoreRef = useRef<number | null>(null);
 
+  const [isMachineModalOpen, setIsMachineModalOpen] = useState(false);
+  const [machineUrl, setMachineUrl] = useState<string | null>(null);
+
+  const scheduleRestoreVerticalScroll = useCallback((top: number) => {
+    if (!top) return;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const api = gridRef.current?.api as any;
+        if (api?.setVerticalScrollPosition) {
+          api.setVerticalScrollPosition(top);
+          return;
+        }
+        const gridBody = document.querySelector('.ag-body-viewport') as HTMLElement;
+        if (gridBody) gridBody.scrollTop = top;
+      });
+    });
+  }, []);
 
   useEffect(() => {
     if (didInitRef.current) return;
@@ -89,12 +109,23 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     if (modalOpen && selectedCell) {
       const originalFlag = selectedCell?.rowData?.flag?.[selectedCell.field] ?? 0;
       setSelectedFlag(originalFlag);
+
+      const originalUrl = selectedCell?.rowData?.urls?.[selectedCell.field] ?? "";
+      setselectedCellUrl(originalUrl);
+
     }
   }, [modalOpen, selectedCell]);
 
   useEffect(() => {
     rowDataRef.current = rowData;        // ★ 常に最新の rowData を保持
   }, [rowData]);
+
+  useEffect(() => {
+    if (pendingScrollRestoreRef.current == null) return;
+    const top = pendingScrollRestoreRef.current;
+    pendingScrollRestoreRef.current = null;
+    scheduleRestoreVerticalScroll(top);
+  }, [rowData, columnDefs, scheduleRestoreVerticalScroll]);
 
   // フィルタ後データ
   const filteredRowData = useMemo(() => {
@@ -105,9 +136,9 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const loadInitialData = async () => {
     const nowJST = dayjs().tz('Asia/Tokyo');
     const hour = nowJST.hour();
-    const minute = nowJST.minute();
-    const isBefore820 = hour < 8 || (hour === 8 && minute < 20);
-    const offset = isBefore820 ? 2 : 1;
+    // const minute = nowJST.minute();
+    const isBefore = hour < 1;
+    const offset = isBefore ? 2 : 1;
 
     const initialDates = getPastDates(30, offset);
     await loadDates(initialDates);
@@ -128,38 +159,64 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const showModal = useCallback((value: any, row: any, field: string) => {
     setSelectedCell({ value, rowData: row, field });
     setSelectedFlag(null);
+    setselectedCellUrl(null);
     setModalOpen(true);
   }, []);
 
-  const loadDates = async (dates: string[]) => {
-    const raw = await fetchSlotDiffs(storeId, dates);
+// 置き換え：loadDates 全体の中の該当部分
+// 置き換え：loadDates 内の該当箇所
+const loadDates = async (dates: string[]) => {
+  const api = gridRef.current?.api as any;
+  const prevScrollTop =
+    api?.getVerticalPixelRange?.()?.top ??
+    (document.querySelector('.ag-body-viewport') as HTMLElement | null)?.scrollTop ??
+    0;
+  const raw = await fetchSlotDiffs(storeId, dates);
 
-    // 生データを累積（機種別で使う）
-    Object.entries(raw).forEach(([k, v]) => {
-      rawMapRef.current[k] = v;
-    });
+  // 生データを累積（機種別で使う）
+  Object.entries(raw).forEach(([k, v]) => {
+    rawMapRef.current[k] = v;
+  });
 
-    // 台番別（最新日付の配列を基軸に transform）
-    const latestKey = dates[dates.length - 1];
-    const latest = raw[latestKey] || Object.values(raw)[0] || [];
+  // 台番別（最新日付の配列を基軸に transform）
+  const latestKey = dates[dates.length - 1];
+  const latest = raw[latestKey] || Object.values(raw)[0] || [];
 
-    const numberRows = transformToGridData(latest, raw);
-    const newCols = buildNumberColumns(dates, numberColDefsRef.current, showModal);
+  const numberRows = transformToGridData(latest, raw);
 
-    // ★ 台番別の“元データ”を更新
-    numberRowDataRef.current = mergeRowData(numberRowDataRef.current, numberRows);
-    numberColDefsRef.current = [...numberColDefsRef.current, ...newCols];
-    setLoadedDates(prev => new Set([...Array.from(prev), ...dates]));
+  // ★ 読み込み済み + 追加日付から「実効的な最新日付」を決定
+  const allLoaded = new Set<string>([...Array.from(loadedDates), ...dates]);
+  const allLoadedArr = [...allLoaded];
+  const effectiveLatestDate = pickEffectiveLatestDate(rawMapRef.current, allLoadedArr);
 
-    // ★ 現在のビューに応じて表示を更新
-    if (viewMode === 'number') {
-      setRowData(numberRowDataRef.current);
-      setColumnDefs(numberColDefsRef.current);
-    } else {
-      // 機種別表示中：平均行/列を再構成
-      buildAndSetGrouped();
-    }
-  };
+  // 台番別の“元データ”を更新（next の順序を尊重）
+  numberRowDataRef.current = mergeRowData(numberRowDataRef.current, numberRows);
+
+  // ★ 実効的な最新日付が見つかった場合のみ「欠損を下へ」並べ替え
+  if (effectiveLatestDate) {
+    numberRowDataRef.current = sortByLatestMissing(numberRowDataRef.current, effectiveLatestDate);
+  } else {
+    // 見つからない＝全日付でデータなし → 単純に台番昇順など
+    numberRowDataRef.current = sortByMachineNumber(numberRowDataRef.current);
+  }
+
+  // 列を生成：実効的な最新日付を渡す（固定列のグレー化にも使う）
+  const newCols = buildNumberColumns(dates, numberColDefsRef.current, showModal, effectiveLatestDate || '');
+
+  numberColDefsRef.current = [...numberColDefsRef.current, ...newCols];
+  setLoadedDates(prev => new Set([...Array.from(prev), ...dates]));
+
+  if (viewMode === 'number') {
+    setRowData(numberRowDataRef.current);
+    setColumnDefs(numberColDefsRef.current);
+  } else {
+    buildAndSetGrouped();
+  }
+
+  pendingScrollRestoreRef.current = prevScrollTop;
+};
+
+
 
   const onBodyScroll = async (event: any) => {
     if (!scrollReady.current) return;
@@ -191,7 +248,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     const v = props.value;
     return (
       <div onClick={handleClick} style={{ width: '100%', height: '100%' }}>
-        {v === 0 || v === null || v === undefined || v === '-' ? '-' : v.toLocaleString?.() ?? v}
+        {v === null || v === undefined || v === '-' ? '-' : v.toLocaleString?.() ?? v}
       </div>
     );
   };
@@ -200,6 +257,13 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     const gridBody = document.querySelector('.ag-body-viewport') as HTMLElement;
     if (gridBody) gridBody.scrollTop = 0;
     setSelectedName(e.target.value);
+    const api = gridRef.current?.api as any;
+    if (api) {
+      api.refreshCells({ force: true });
+      if (typeof api.doLayout === 'function') {
+        api.doLayout();
+      }
+    }
   };
 
   // ========= 機種別（平均） =========
@@ -390,7 +454,22 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
           try {
             const styleObj = def.cellStyle({ value: row[def.field], data: row, colDef: def });
             if (styleObj && styleObj.backgroundColor) {
-              bgColor = styleObj.backgroundColor;
+
+              if (styleObj.backgroundColor == "#FFBFC7") {
+                bgColor = "#FF0000";
+              }
+              else if (styleObj.backgroundColor == "#5bd799") {
+                bgColor = "#008000";
+              }
+              else if (styleObj.backgroundColor == "#D3B9DE") {
+                bgColor = "#5a4498";
+              }
+              else if (styleObj.backgroundColor == "#FFE899") {
+                bgColor = "#ffff00";
+              }
+              else {
+                bgColor = styleObj.backgroundColor;
+              }
             }
           } catch {
             // ignore
@@ -421,7 +500,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   
     // ダウンロード
     const buffer = await workbook.xlsx.writeBuffer();
-    saveAs(new Blob([buffer]), `slot-diff_${new Date().toISOString().slice(0,10)}.xlsx`);
+    saveAs(new Blob([buffer]), `${storeId}_${dayjs().tz("Asia/Tokyo").format("YYYYMMDDHHmmss")}.xlsx`);
   };
 
   return (
@@ -542,6 +621,8 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
 
           const data = snap.data().data;
           const targetName = selectedCell.rowData.name ?? selectedCell.rowData.modelName ?? '';
+          const targetNumber = selectedCell.rowData.machineNumber ?? '';
+
           const dataKey    = selectedCell.rowData.dataKey;
           const originalFlag = selectedCell?.rowData?.flag?.[dateField] ?? 0;
 
@@ -617,12 +698,14 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
           }
           // 3) 個別更新（対象セルのみ）
           else {
-            ops.push({ path: new FieldPath('data', dataKey, 'flag'), value: selectedFlag });
+            Object.entries(data).forEach(([key, val]: [string, any]) => {
+              if (val.name === targetName && val.machineNumber === targetNumber) {
+                ops.push({ path: new FieldPath('data', key, 'flag'), value: selectedFlag });
+              }
+            });
           }
 
-          if (ops.length === 1) {
-            await updateDoc(ref, ops[0].path, ops[0].value);
-          } else if (ops.length > 1) {
+          if (ops.length >= 1) {
             const batch = writeBatch(db);
             ops.forEach(op => batch.update(ref, op.path, op.value));
             await batch.commit();
@@ -641,7 +724,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
               row.flag[field] = 0;
             } else if (selectedFlag === 9 && row.name === targetName) {
               row.flag[field] = 9;
-            } else if (row.dataKey === dataKey) {
+            } else if (row.name === targetName && row.machineNumber === targetNumber) {
               row.flag[field] = selectedFlag;
             }
           });
@@ -652,7 +735,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
               row.flag[field] = 0;
             } else if (selectedFlag === 9 && row.name === targetName) {
               row.flag[field] = 9;
-            } else if (row.dataKey === dataKey) {
+            } else if (row.name === targetName && row.machineNumber === targetNumber) {
               row.flag[field] = selectedFlag;
             }
           });
@@ -666,6 +749,17 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
         <p>台番号: {selectedCell?.rowData?.machineNumber}</p>
         <p>機種名: {selectedCell?.rowData?.name ?? selectedCell?.rowData?.modelName}</p>
         <p>日付: {selectedCell?.field}</p>
+        {selectedCellUrl ? (
+          <p><a
+            onClick={() => {
+              setMachineUrl(selectedCellUrl);
+              setIsMachineModalOpen(true);
+            }}
+          >
+            台データを見る
+          </a></p>
+        ) : null}
+
         <Radio.Group
           onChange={(e) => setSelectedFlag(Number(e.target.value))}
           value={selectedFlag}
@@ -677,26 +771,81 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
           <Radio value={0} disabled={false}>フラグ解除</Radio>
         </Radio.Group>
       </Modal>
+      <Modal
+        title="台データ"
+        open={isMachineModalOpen}
+        onCancel={() => {
+          setIsMachineModalOpen(false);
+          setMachineUrl(null);
+        }}
+        footer={null}
+        width="90vw"
+        style={{ top: 20 }}
+      >
+        {machineUrl ? (
+          <div
+            style={{
+              width: "100%",
+              overflowX: "hidden",
+              touchAction: "pan-y",        // ←横方向のパンを抑制
+            }}
+          >
+            <iframe
+              src={machineUrl}
+              title="台データ"
+              style={{
+                width: "100%",
+                height: "70vh",
+                border: "none",
+                display: "block",
+              }}
+            />
+          </div>
+        ) : null}
+      </Modal>
     </>
   );
 };
 
 // ================== 台番別（columns） ==================
-function buildNumberColumns(dates: string[], existing: ColDef[], showModal: Function): ColDef[] {
+// シグネチャ変更：latestDate を追加
+function buildNumberColumns(
+  dates: string[],
+  existing: ColDef[],
+  showModal: Function,
+  latestDate: string        // ★ 追加
+): ColDef[] {
   const existingFields = new Set(existing.map(c => c.field));
   const cols: ColDef[] = [];
 
+  const isMissingLatest = (row: any) => {
+    if (!latestDate) return false; // ★ 実効日付がないならグレー化しない
+    const v = row?.[latestDate];
+    return v === undefined || v === null || v === '-'; // 0 はデータ扱い
+  };
+
+  
   if (!existingFields.has('machineNumber')) {
     cols.push({
       headerName: '',
       field: 'machineNumber',
       pinned: 'left',
       width: 40,
-      cellStyle: {
-        fontSize: '0.8em',
-        padding: 0,
-        fontWeight: 'bold',
-        textAlign: 'center',
+      // ★ 固定列もグレー化
+      cellStyle: (p) => {
+        const base: any = {
+          fontSize: '0.8em',
+          padding: 0,
+          fontWeight: 'bold',
+          textAlign: 'center',
+          borderRight: '1px solid #ccc', 
+        };
+        if (!p?.data || p.data.isTotalRow) return base;
+        if (isMissingLatest(p.data)) {
+          base.backgroundColor = '#e0e0e0';
+          base.color = '#666';
+        }
+        return base;
       },
     });
   }
@@ -708,10 +857,21 @@ function buildNumberColumns(dates: string[], existing: ColDef[], showModal: Func
       pinned: 'left',
       width: 90,
       valueGetter: (p) => getDisplayName(p.data?.name),
-      cellStyle: {
-        fontSize: '0.6em',
-        padding: 0,
-        whiteSpace: 'normal',
+      // ★ 固定列もグレー化
+      cellStyle: (p) => {
+        const base: any = {
+          fontSize: '0.6em',
+          padding: 0,
+          whiteSpace: 'normal',
+          textAlign: 'center',
+
+        };
+        if (!p?.data || p.data.isTotalRow) return base;
+        if (isMissingLatest(p.data)) {
+          base.backgroundColor = '#e0e0e0';
+          base.color = '#666';
+        }
+        return base;
       },
     });
   }
@@ -728,15 +888,27 @@ function buildNumberColumns(dates: string[], existing: ColDef[], showModal: Func
         const v = params.value;
         const row = params.data;
         const field = params.colDef.field as string;
-
         const flag = row?.flag?.[field];
 
         let color = '#ccc';
         let backgroundColor: string | undefined;
 
         if (typeof v === 'number') {
-          if (v > 0) color = '#4c6cb3';
-          else if (v < 0) color = '#d9333f';
+          color = v >= 0 ? '#4c6cb3' : '#d9333f';
+        }
+
+        switch (flag) {
+          case 9: backgroundColor = '#FFBFC7'; break;
+          case 6: backgroundColor = '#5bd799'; break;
+          case 5: backgroundColor = '#D3B9DE'; break;
+          case 4: backgroundColor = '#FFE899'; break;
+          default: break;
+        }
+
+        // ★ 全列で“最新欠損”ならグレー
+        if (row && !row.isTotalRow && isMissingLatest(row)) {
+          backgroundColor = '#e0e0e0';
+          color = '#666';
         }
 
         switch (flag) {
@@ -756,11 +928,12 @@ function buildNumberColumns(dates: string[], existing: ColDef[], showModal: Func
           borderRight: '1px solid #ccc',
           backgroundColor,
         } as any;
-      }
+      },
     }));
 
   return [...cols, ...dynamic];
 }
+
 
 // SlotDiffGrid.tsx の下の方に追加
 function getDisplayName(name: string): string {
@@ -768,6 +941,9 @@ function getDisplayName(name: string): string {
   // ★ 特定機種の省略ルール
   if (name === 'ToLOVEるダークネス TRANCE ver.8.7') {
     return 'ToLOVEるTRANCE'; // ← 省略名
+  }
+  if (name === '革命機ヴァルヴレイヴ2') {
+    return 'ヴヴヴ2'; // ← 省略名
   }
   return name;
 }
@@ -817,7 +993,7 @@ function buildGroupedColumnsForDates(
 
       let color = '#333';
       if (typeof v === 'number') {
-        if (v > 0) color = '#4c6cb3';
+        if (v >= 0) color = '#4c6cb3';
         else if (v < 0) color = '#d9333f';
       }
 
@@ -864,7 +1040,7 @@ function mergeRowData(prev: any[], next: any[]): any[] {
     } else {
       const mergedRow = merged[row.id];
       for (const key of Object.keys(row)) {
-        if (key !== 'flag') {
+        if (key !== 'flag' && key !== 'urls') {
           mergedRow[key] = row[key];
         }
       }
@@ -872,8 +1048,77 @@ function mergeRowData(prev: any[], next: any[]): any[] {
         ...row.flag,
         ...mergedRow.flag, // 既存のユーザー更新を優先
       };
+      mergedRow.urls = {
+        ...row.urls,
+        ...mergedRow.urls, // 既存のユーザー更新を優先
+      };
     }
   }
 
   return Object.values(merged);
 }
+
+// ★ 追加：少なくとも1件データのある最新日付を返す
+function pickEffectiveLatestDate(
+  allData: Record<string, any>,  // rawMapRef.current を想定（YYYYMMDD => { dataKey: item })
+  candidateDates: string[]
+): string | null {
+  // 候補日を「新しい順」に
+  const sorted = [...candidateDates].sort((a, b) => b.localeCompare(a));
+  for (const d of sorted) {
+    const dayMap = allData[d] || {};
+    // “データあり”の定義：diff が数値 or 0（0もデータとして扱う想定）
+    const hasAny = Object.values(dayMap).some((it: any) => {
+      const v = it?.diff;
+      return v !== undefined && v !== null && v !== '-';
+    });
+    if (hasAny) return d;
+  }
+  return null;
+}
+
+// 既存：最新欠損を下へ（effectiveLatestDate が空なら何もしない）
+function sortByLatestMissing(rows: any[], latestDate: string): any[] {
+  if (!Array.isArray(rows) || rows.length === 0 || !latestDate) return rows;
+
+  const isMissing = (row: any) => {
+    const v = row?.[latestDate];
+    // “欠損”の定義：undefined / null / '-'（0 はデータ扱い）
+    return v === undefined || v === null || v === '-';
+  };
+
+  const total = rows.find(r => r?.isTotalRow);
+  const others = rows.filter(r => !r?.isTotalRow);
+
+  others.sort((a: any, b: any) => {
+    const aMissing = isMissing(a);
+    const bMissing = isMissing(b);
+    if (aMissing !== bMissing) return aMissing ? 1 : -1;
+
+    const am = Number(a.machineNumber);
+    const bm = Number(b.machineNumber);
+    if (Number.isFinite(am) && Number.isFinite(bm)) return am - bm;
+
+    return String(a.machineNumber).localeCompare(String(b.machineNumber), 'ja') ||
+           String(a.name).localeCompare(String(b.name), 'ja');
+  });
+
+  return total ? [total, ...others] : others;
+}
+
+// ★ 追加：台番昇順（フォールバック用）
+function sortByMachineNumber(rows: any[]): any[] {
+  const total = rows.find(r => r?.isTotalRow);
+  const others = rows.filter(r => !r?.isTotalRow);
+
+  others.sort((a: any, b: any) => {
+    const am = Number(a.machineNumber);
+    const bm = Number(b.machineNumber);
+    if (Number.isFinite(am) && Number.isFinite(bm)) return am - bm;
+    return String(a.machineNumber).localeCompare(String(b.machineNumber), 'ja') ||
+           String(a.name).localeCompare(String(b.name), 'ja');
+  });
+
+  return total ? [total, ...others] : others;
+}
+
