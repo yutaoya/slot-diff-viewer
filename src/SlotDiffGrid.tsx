@@ -1,4 +1,4 @@
-// src/components/SlotDiffGrid.tsx
+﻿// src/components/SlotDiffGrid.tsx
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import {
@@ -20,7 +20,7 @@ import { transformToGridData, transformToGroupedGridData } from './dataTransform
 
 // UI
 import { Modal, Radio } from 'antd';
-import { doc, updateDoc, getDoc, getFirestore, FieldPath, writeBatch, collection, getDocs } from 'firebase/firestore';
+import { doc, updateDoc, getDoc, getFirestore, FieldPath, writeBatch, collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from './firebase';
 import { FormControl, MenuItem, Select } from '@mui/material';
 import { SelectChangeEvent } from '@mui/material/Select';
@@ -69,6 +69,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const [selectedCell, setSelectedCell] = useState<{ rowData: any; field: string; value: any } | null>(null);
   const [selectedFlag, setSelectedFlag] = useState<number | null>(null);
   const [selectedCellUrl, setselectedCellUrl] = useState<string | null>(null);
+  const [selectedRowId, setSelectedRowId] = useState<string | number | null>(null);
 
 
   // 機種名フィルタ
@@ -76,12 +77,16 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
 
   // 読み込み済みの「生データ（date => map）」を保持（機種別集計に使用）
   const rawMapRef = useRef<Record<string, any>>({});
+  const tooltipColorMapRef = useRef<Record<string, string>>({});
+  const tooltipTextMapRef = useRef<Record<string, string>>({});
 
   const rowDataRef = useRef<any[]>([]);  // ★ 追加
   const pendingScrollRestoreRef = useRef<number | null>(null);
 
   const [isMachineModalOpen, setIsMachineModalOpen] = useState(false);
   const [machineUrl, setMachineUrl] = useState<string | null>(null);
+  const [machineTooltip, setMachineTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
+  const machineTooltipRef = useRef<HTMLDivElement | null>(null);
 
   const scheduleRestoreVerticalScroll = useCallback((top: number) => {
     if (!top) return;
@@ -107,6 +112,60 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   useEffect(() => {
     rowDataMirrorRef.current = rowData;
   }, [rowData]);
+
+  useEffect(() => {
+    if (!machineTooltip) return;
+    const handleClick = (event: MouseEvent) => {
+      if (machineTooltipRef.current && machineTooltipRef.current.contains(event.target as Node)) {
+        return;
+      }
+      setMachineTooltip(null);
+    };
+    document.addEventListener('click', handleClick);
+    return () => {
+      document.removeEventListener('click', handleClick);
+    };
+  }, [machineTooltip]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadTooltips = async () => {
+      try {
+        const q = query(
+          collection(db, 'tooltips'),
+          where('storeId', '==', storeId)
+        );
+        const snapshot = await getDocs(q);
+        const map: Record<string, string> = {};
+        const textMap: Record<string, string> = {};
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data() as { machineNumber?: number | string; color?: string; text?: string };
+          const machineNumber = data?.machineNumber;
+          const color = data?.color;
+          if (machineNumber != null && typeof color === 'string' && color.trim() !== '') {
+            map[String(machineNumber)] = color;
+          }
+          const text = data?.text;
+          if (machineNumber != null && typeof text === 'string' && text.trim() !== '') {
+            textMap[String(machineNumber)] = text;
+          }
+        });
+
+        if (cancelled) return;
+        tooltipColorMapRef.current = map;
+        tooltipTextMapRef.current = textMap;
+        gridRef.current?.api?.refreshCells({ force: true });
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error('Failed to load tooltips:', error);
+      }
+    };
+
+    loadTooltips();
+    return () => {
+      cancelled = true;
+    };
+  }, [storeId]);
 
   useEffect(() => {
     if (modalOpen && selectedCell) {
@@ -166,6 +225,47 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     setModalOpen(true);
   }, []);
 
+  const getTooltipColor = useCallback((machineNumber: number | string | null | undefined) => {
+    if (machineNumber == null) return undefined;
+    return tooltipColorMapRef.current[String(machineNumber)];
+  }, []);
+
+  const getTooltipText = useCallback((machineNumber: number | string | null | undefined) => {
+    if (machineNumber == null) return undefined;
+    return tooltipTextMapRef.current[String(machineNumber)];
+  }, []);
+
+  const showMachineTooltip = useCallback((params: any) => {
+    if (params?.colDef?.field !== 'machineNumber') {
+      setMachineTooltip(null);
+      return;
+    }
+    const text = getTooltipText(params?.data?.machineNumber);
+    const rowKey = params?.data?.id ?? params?.data?.machineNumber ?? null;
+    setSelectedRowId(rowKey);
+    if (!text) {
+      setMachineTooltip(null);
+      return;
+    }
+    let x = 20;
+    let y = 20;
+    const evt: any = params?.event;
+    if (evt?.clientX != null && evt?.clientY != null) {
+      x = evt.clientX;
+      y = evt.clientY;
+    } else if (evt?.target?.getBoundingClientRect) {
+      const rect = evt.target.getBoundingClientRect();
+      x = rect.right;
+      y = rect.top;
+    }
+    if (evt?.target?.getBoundingClientRect) {
+      const rect = evt.target.getBoundingClientRect();
+      x = rect.right;
+      y = rect.top;
+    }
+    setMachineTooltip({ text, x, y });
+  }, [getTooltipText]);
+
 // 置き換え：loadDates 全体の中の該当部分
 // 置き換え：loadDates 内の該当箇所
 const loadDates = async (dates: string[]) => {
@@ -204,7 +304,14 @@ const loadDates = async (dates: string[]) => {
   }
 
   // 列を生成：実効的な最新日付を渡す（固定列のグレー化にも使う）
-  const newCols = buildNumberColumns(dates, numberColDefsRef.current, showModal, effectiveLatestDate || '');
+  const newCols = buildNumberColumns(
+    dates,
+    numberColDefsRef.current,
+    showModal,
+    effectiveLatestDate || '',
+    getTooltipColor,
+    getTooltipText
+  );
 
   numberColDefsRef.current = [...numberColDefsRef.current, ...newCols];
   setLoadedDates(prev => new Set([...Array.from(prev), ...dates]));
@@ -224,6 +331,7 @@ const loadDates = async (dates: string[]) => {
   const onBodyScroll = async (event: any) => {
     if (!scrollReady.current) return;
     if (event.direction !== 'horizontal') return;
+    setMachineTooltip(null);
 
     const container = document.querySelector('.ag-body-horizontal-scroll-viewport');
     if (!container) return;
@@ -280,7 +388,8 @@ const loadDates = async (dates: string[]) => {
     setRowData(groupedRows);
 
     // 機種名（name優先、なければmodelName）＋日付列（降順）
-    const groupedCols = buildGroupedColumnsForDates(loaded, [], showModal);
+    const effectiveLatestDate = pickEffectiveLatestDate(allData, loaded);
+    const groupedCols = buildGroupedColumnsForDates(loaded, [], showModal, effectiveLatestDate || '');
     setColumnDefs(groupedCols);
   };
 
@@ -562,15 +671,20 @@ const loadDates = async (dates: string[]) => {
               });
             }}
             getRowStyle={(params) => {
+              const style: Record<string, string | number> = {};
               if (params.data?.isTotalRow) {
-                return {
-                  backgroundColor: '#f0f0f0',
-                  fontWeight: 'bold',
-                };
+                style.backgroundColor = '#f0f0f0';
+                style.fontWeight = 'bold';
               }
-              return undefined;
+              const rowKey = params.data?.id ?? params.data?.machineNumber ?? null;
+              if (rowKey != null && rowKey === selectedRowId) {
+                style.backgroundColor = '#dbffff';
+              }
+              return Object.keys(style).length ? style : undefined;
             }}
             onBodyScroll={onBodyScroll}
+            onCellClicked={showMachineTooltip}
+            onCellFocused={showMachineTooltip}
             domLayout="normal"
           />
         </div>
@@ -614,6 +728,28 @@ const loadDates = async (dates: string[]) => {
         Excel出力
       </Button>
       </div>
+
+      {machineTooltip ? (
+        <div
+          ref={machineTooltipRef}
+          style={{
+            position: 'fixed',
+            left: machineTooltip.x,
+            top: machineTooltip.y,
+            transform: 'translate(8px, -110%)',
+            backgroundColor: '#111',
+            color: '#fff',
+            padding: '6px 8px',
+            borderRadius: 6,
+            fontSize: '0.8em',
+            maxWidth: 220,
+            zIndex: 2000,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
+          }}
+        >
+          {machineTooltip.text}
+        </div>
+      ) : null}
 
       {/* モーダル（台番別のみ） */}
       <Modal
@@ -822,7 +958,9 @@ function buildNumberColumns(
   dates: string[],
   existing: ColDef[],
   showModal: Function,
-  latestDate: string        // ★ 追加
+  latestDate: string,        // ★ 追加
+  getTooltipColor: (machineNumber: number | string | null | undefined) => string | undefined,
+  getTooltipText: (machineNumber: number | string | null | undefined) => string | undefined
 ): ColDef[] {
   const existingFields = new Set(existing.map(c => c.field));
   const cols: ColDef[] = [];
@@ -840,6 +978,15 @@ function buildNumberColumns(
       field: 'machineNumber',
       pinned: 'left',
       width: 40,
+      tooltipValueGetter: (p: any) => getTooltipText(p?.data?.machineNumber),
+      cellRenderer: (p: any) => {
+        const text = getTooltipText(p?.data?.machineNumber);
+        return (
+          <div title={text || undefined}>
+            {p.value}
+          </div>
+        );
+      },
       // ★ 固定列もグレー化
       cellStyle: (p) => {
         const base: any = {
@@ -853,6 +1000,11 @@ function buildNumberColumns(
         if (isMissingLatest(p.data)) {
           base.backgroundColor = '#e0e0e0';
           base.color = '#666';
+        } else {
+          const tooltipColor = getTooltipColor(p.data?.machineNumber);
+          if (tooltipColor) {
+            base.backgroundColor = tooltipColor;
+          }
         }
         return base;
       },
@@ -961,9 +1113,16 @@ function getDisplayName(name: string): string {
 function buildGroupedColumnsForDates(
   dates: string[],
   existing: ColDef[],
-  showModal: (value: any, row: any, field: string) => void
+  showModal: (value: any, row: any, field: string) => void,
+  latestDate: string
 ): ColDef[] {  const existingFields = new Set(existing.map(c => c.field));
   const cols: ColDef[] = [];
+
+  const isMissingLatest = (row: any) => {
+    if (!latestDate) return false;
+    const v = row?.[latestDate];
+    return v === undefined || v === null || v === '-';
+  };
 
   if (!existingFields.has('name')) {
     cols.push({
@@ -972,11 +1131,19 @@ function buildGroupedColumnsForDates(
       valueGetter: (p) => getDisplayName(p.data?.name ?? p.data?.modelName ?? ''),
       pinned: 'left',
       width: 100,
-      cellStyle: {
-        fontSize: '0.6rem',
-        padding: 0,
-        whiteSpace: 'normal',
-        textAlign: 'left',
+      cellStyle: (p: any) => {
+        const base: any = {
+          fontSize: '0.6rem',
+          padding: 0,
+          whiteSpace: 'normal',
+          textAlign: 'left',
+        };
+        if (!p?.data) return base;
+        if (isMissingLatest(p.data)) {
+          base.backgroundColor = '#e0e0e0';
+          base.color = '#666';
+        }
+        return base;
       },
     });
   }
@@ -1012,6 +1179,13 @@ function buildGroupedColumnsForDates(
         case 6: backgroundColor = '#5bd799'; break;
         case 5: backgroundColor = '#D3B9DE'; break;
         case 4: backgroundColor = '#FFE899'; break;
+      }
+
+      if (row && isMissingLatest(row)) {
+        color = '#666';
+        if (!backgroundColor) {
+          backgroundColor = '#e0e0e0';
+        }
       }
 
       return {

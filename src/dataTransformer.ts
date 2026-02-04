@@ -121,9 +121,9 @@ export function transformToGroupedGridData(latest: any, allData: Record<string, 
     }
   }
 
-  // ===== 2) 行のフィルタ：最新日に値がある機種だけ残す =====
+  // ===== 2) 行のフィルタ：全機種を残す（最新日が欠損でも表示） =====
   const latestDate = dates.sort()[dates.length - 1]; // 文字列 YYYYMMDD 昇順 → 最後が最新
-  const rows = Object.values(rowMap).filter((row: any) => latestDate && row[latestDate] !== undefined);
+  const rows = Object.values(rowMap);
 
   // ===== 3) 並び順：最新日付での“最小の台番”の昇順 =====
   // latest から「機種名 -> その日の最小 machineNumber」を作る
@@ -139,7 +139,14 @@ export function transformToGroupedGridData(latest: any, allData: Record<string, 
     }
   }
 
+  const isMissing = (v: any) => v === undefined || v === null || v === '-';
+
   rows.sort((a: any, b: any) => {
+    const aMissing = latestDate ? isMissing(a[latestDate]) : false;
+    const bMissing = latestDate ? isMissing(b[latestDate]) : false;
+    if (aMissing && !bMissing) return 1;
+    if (!aMissing && bMissing) return -1;
+
     const na = a.name ?? '';
     const nb = b.name ?? '';
     const ma = minNumberByName[na] ?? Infinity;
