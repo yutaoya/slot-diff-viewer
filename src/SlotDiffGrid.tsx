@@ -20,7 +20,8 @@ import { transformToGridData, transformToGroupedGridData } from './dataTransform
 
 // UI
 import { Modal, Radio } from 'antd';
-import { doc, updateDoc, getDoc, getFirestore, FieldPath, writeBatch } from 'firebase/firestore';
+import { doc, updateDoc, getDoc, getFirestore, FieldPath, writeBatch, collection, getDocs } from 'firebase/firestore';
+import { db } from './firebase';
 import { FormControl, MenuItem, Select } from '@mui/material';
 import { SelectChangeEvent } from '@mui/material/Select';
 import Box from '@mui/material/Box';
@@ -60,6 +61,8 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const didInitRef = useRef(false);
 
   const [viewMode, setViewMode] = useState<ViewMode>('number');
+  const [disableVirtualization, setDisableVirtualization] = useState(false);
+  const virtualizationPendingRef = useRef(false);
 
   // モーダル
   const [modalOpen, setModalOpen] = useState(false);
@@ -257,13 +260,8 @@ const loadDates = async (dates: string[]) => {
     const gridBody = document.querySelector('.ag-body-viewport') as HTMLElement;
     if (gridBody) gridBody.scrollTop = 0;
     setSelectedName(e.target.value);
-    const api = gridRef.current?.api as any;
-    if (api) {
-      api.refreshCells({ force: true });
-      if (typeof api.doLayout === 'function') {
-        api.doLayout();
-      }
-    }
+    virtualizationPendingRef.current = true;
+    setDisableVirtualization(true);
   };
 
   // ========= 機種別（平均） =========
@@ -540,6 +538,8 @@ const loadDates = async (dates: string[]) => {
             components={{ customCellRenderer: CustomCellRenderer }}
             suppressMovableColumns={true}
             suppressHorizontalScroll={false}
+            suppressRowVirtualisation={disableVirtualization}
+            suppressColumnVirtualisation={disableVirtualization}
             rowHeight={22}
             headerHeight={20}
             defaultColDef={{
@@ -551,6 +551,15 @@ const loadDates = async (dates: string[]) => {
                 borderRight: '1px solid #ccc',
               },
               headerClass: 'custom-header',
+            }}
+            onModelUpdated={() => {
+              if (!virtualizationPendingRef.current) return;
+              virtualizationPendingRef.current = false;
+              requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                  setDisableVirtualization(false);
+                });
+              });
             }}
             getRowStyle={(params) => {
               if (params.data?.isTotalRow) {
