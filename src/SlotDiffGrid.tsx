@@ -139,16 +139,23 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
         const map: Record<string, string> = {};
         const textMap: Record<string, string> = {};
         snapshot.forEach((docSnap) => {
-          const data = docSnap.data() as { machineNumber?: number | string; color?: string; text?: string };
-          const machineNumber = data?.machineNumber;
-          const color = data?.color;
-          if (machineNumber != null && typeof color === 'string' && color.trim() !== '') {
-            map[String(machineNumber)] = color;
-          }
-          const text = data?.text;
-          if (machineNumber != null && typeof text === 'string' && text.trim() !== '') {
-            textMap[String(machineNumber)] = text;
-          }
+          const data = docSnap.data() as {
+            rows?: Array<{ machineNumber?: number | string; color?: string; text?: string }>;
+          };
+          const rows = Array.isArray(data?.rows) ? data.rows : [];
+
+          rows.forEach((row) => {
+            const machineNumber = row?.machineNumber;
+            const color = row?.color;
+            const text = row?.text;
+
+            if (machineNumber != null && typeof color === 'string' && color.trim() !== '') {
+              map[String(machineNumber)] = color;
+            }
+            if (machineNumber != null && typeof text === 'string' && text.trim() !== '') {
+              textMap[String(machineNumber)] = text;
+            }
+          });
         });
 
         if (cancelled) return;
@@ -359,6 +366,44 @@ const loadDates = async (dates: string[]) => {
     const v = props.value;
     return (
       <div onClick={handleClick} style={{ width: '100%', height: '100%' }}>
+        {v === null || v === undefined || v === '-' ? '-' : v.toLocaleString?.() ?? v}
+      </div>
+    );
+  };
+
+  const GroupedCellRenderer = (props: any) => {
+    const lastTap = useRef<number | null>(null);
+
+    const handleClick = () => {
+      const now = Date.now();
+      if (lastTap.current && now - lastTap.current < 300) {
+        props.showModal(props.value, props.node.data, props.colDef.field!);
+      }
+      lastTap.current = now;
+    };
+
+    const v = props.value;
+    const field = props.colDef.field as string;
+    const flag = props.node?.data?.flag?.[field];
+
+    return (
+      <div
+        onClick={handleClick}
+        style={{ width: '100%', height: '100%', position: 'relative' }}
+      >
+        {flag === 6 ? (
+          <span
+            style={{
+              position: 'absolute',
+              top: 0,
+              right: 0,
+              width: 0,
+              height: 0,
+              borderTop: '10px solid #5bd799',
+              borderLeft: '10px solid transparent',
+            }}
+          />
+        ) : null}
         {v === null || v === undefined || v === '-' ? '-' : v.toLocaleString?.() ?? v}
       </div>
     );
@@ -644,7 +689,10 @@ const loadDates = async (dates: string[]) => {
             ref={gridRef}
             rowData={filteredRowData}
             columnDefs={columnDefs}
-            components={{ customCellRenderer: CustomCellRenderer }}
+            components={{
+              customCellRenderer: CustomCellRenderer,
+              groupedCellRenderer: GroupedCellRenderer,
+            }}
             suppressMovableColumns={true}
             suppressHorizontalScroll={false}
             suppressRowVirtualisation={disableVirtualization}
@@ -1157,7 +1205,7 @@ function buildGroupedColumnsForDates(
     headerName: formatDate(d),
     field: d,
     width: 60,
-    cellRenderer: 'customCellRenderer',
+    cellRenderer: 'groupedCellRenderer',
     // ★ 機種別でもダブルタップでモーダル起動
     cellRendererParams: { showModal },
     cellStyle: (params) => {
@@ -1176,7 +1224,6 @@ function buildGroupedColumnsForDates(
       let backgroundColor: string | undefined;
       switch (flag) {
         case 9: backgroundColor = '#FFBFC7'; break;
-        case 6: backgroundColor = '#5bd799'; break;
         case 5: backgroundColor = '#D3B9DE'; break;
         case 4: backgroundColor = '#FFE899'; break;
       }

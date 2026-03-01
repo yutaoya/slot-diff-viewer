@@ -83,7 +83,7 @@ export function transformToGroupedGridData(latest: any, allData: Record<string, 
     const data = allData[date];
 
     // name（機種名）ごとに集計バッファ
-    const byName: Record<string, { sum: number; count: number; anyFlag9: boolean }> = {};
+    const byName: Record<string, { sum: number; count: number; groupedFlag?: number }> = {};
 
     for (const key in data) {
       const item = data[key];
@@ -91,13 +91,17 @@ export function transformToGroupedGridData(latest: any, allData: Record<string, 
       if (!name) continue;
 
       if (!byName[name]) {
-        byName[name] = { sum: 0, count: 0, anyFlag9: false };
+        byName[name] = { sum: 0, count: 0, groupedFlag: undefined };
       }
 
       const diff = typeof item.diff === 'number' ? item.diff : 0;
       byName[name].sum += diff;
       byName[name].count += 1; // 行数で割る（“台数平均”）
-      if (item.flag === 9) byName[name].anyFlag9 = true;
+      if (item.flag === 9) {
+        byName[name].groupedFlag = 9;
+      } else if (item.flag === 6 && byName[name].groupedFlag !== 9) {
+        byName[name].groupedFlag = 6;
+      }
     }
 
     // 機種名ごとに行を作成・更新（machineNumber は空欄で表示）
@@ -117,7 +121,7 @@ export function transformToGroupedGridData(latest: any, allData: Record<string, 
       }
 
       rowMap[rowId][date] = avg;
-      rowMap[rowId].flag[date] = g.anyFlag9 ? 9 : undefined;
+      rowMap[rowId].flag[date] = g.groupedFlag;
     }
   }
 
