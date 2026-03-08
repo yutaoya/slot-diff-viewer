@@ -185,3 +185,67 @@ export function transformToGroupedGridData(latest: any, allData: Record<string, 
   // 合計行を先頭に
   return [totalRow, ...rows];
 }
+
+// allData: { [YYYYMMDD]: { [dataKey]: item } } or { [YYYYMMDD]: item[] }
+// 末尾0-9とゾロ目（末尾2桁同一）の日別平均差枚を返す
+export function transformToTailGridData(allData: Record<string, any>) {
+  const dates = Object.keys(allData);
+  if (dates.length === 0) return [];
+
+  const labels = [
+    '末尾0', '末尾1', '末尾2', '末尾3', '末尾4',
+    '末尾5', '末尾6', '末尾7', '末尾8', '末尾9',
+    'ゾロ目',
+  ];
+
+  const rows: Array<Record<string, any>> = labels.map((label, index) => ({
+    id: `tail_${index}`,
+    tailLabel: label,
+  }));
+
+  const getMachineNumber = (item: any): number | null => {
+    const raw = item?.machineNumber;
+    if (raw === undefined || raw === null || raw === '') return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const isZorome = (machineNumber: number) => {
+    const twoDigits = Math.abs(machineNumber % 100).toString().padStart(2, '0');
+    return twoDigits[0] === twoDigits[1];
+  };
+
+  for (const date of dates) {
+    const dayRows = Array.isArray(allData[date]) ? allData[date] : Object.values(allData[date] || {});
+    const sums = Array.from({ length: 11 }, () => ({ sum: 0, count: 0, positiveCount: 0 }));
+
+    dayRows.forEach((item: any) => {
+      const machineNumber = getMachineNumber(item);
+      const diff = item?.diff;
+      if (machineNumber == null || typeof diff !== 'number') return;
+
+      const tail = Math.abs(machineNumber % 10);
+      sums[tail].sum += diff;
+      sums[tail].count += 1;
+      if (diff > 0) sums[tail].positiveCount += 1;
+
+      if (isZorome(machineNumber)) {
+        sums[10].sum += diff;
+        sums[10].count += 1;
+        if (diff > 0) sums[10].positiveCount += 1;
+      }
+    });
+
+    rows.forEach((row, idx) => {
+      const g = sums[idx];
+      if (g.count <= 0) {
+        row[date] = '-';
+        return;
+      }
+      const avg = Math.round(g.sum / g.count);
+      row[date] = `${avg}(${g.positiveCount}/${g.count})`;
+    });
+  }
+
+  return rows;
+}

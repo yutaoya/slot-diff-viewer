@@ -16,7 +16,7 @@ import timezone from 'dayjs/plugin/timezone';
 
 // データ関連（パスは環境に合わせて）
 import { fetchSlotDiffs } from './dataFetcher';
-import { transformToGridData, transformToGroupedGridData } from './dataTransformer';
+import { transformToGridData, transformToGroupedGridData, transformToTailGridData } from './dataTransformer';
 
 // UI
 import { Modal, Radio } from 'antd';
@@ -41,7 +41,7 @@ interface Props {
   storeId: string;
 }
 
-type ViewMode = 'number' | 'model'; // 台番別 / 機種別（平均）
+type ViewMode = 'number' | 'model' | 'tail'; // 台番別 / 機種別（平均）/ 末尾別
 
 export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const [columnDefs, setColumnDefs] = useState<ColDef[]>([]);
@@ -101,6 +101,15 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
         if (gridBody) gridBody.scrollTop = top;
       });
     });
+  }, []);
+
+  const getCurrentVerticalScrollTop = useCallback(() => {
+    const api = gridRef.current?.api as any;
+    return (
+      api?.getVerticalPixelRange?.()?.top ??
+      (document.querySelector('.ag-body-viewport') as HTMLElement | null)?.scrollTop ??
+      0
+    );
   }, []);
 
   useEffect(() => {
@@ -198,9 +207,10 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
 
   // フィルタ後データ
   const filteredRowData = useMemo(() => {
+    if (viewMode === 'tail') return rowData;
     if (!selectedName) return rowData;
     return rowData.filter((r) => (r.name ?? r.modelName) === selectedName);
-  }, [selectedName, rowData]);
+  }, [selectedName, rowData, viewMode]);
 
   const loadInitialData = async () => {
     const nowJST = dayjs().tz('Asia/Tokyo');
@@ -326,8 +336,10 @@ const loadDates = async (dates: string[]) => {
   if (viewMode === 'number') {
     setRowData(numberRowDataRef.current);
     setColumnDefs(numberColDefsRef.current);
+  } else if (viewMode === 'model') {
+    buildAndSetGrouped(allLoadedArr);
   } else {
-    buildAndSetGrouped();
+    buildAndSetTail(allLoadedArr);
   }
 
   pendingScrollRestoreRef.current = prevScrollTop;
@@ -418,11 +430,11 @@ const loadDates = async (dates: string[]) => {
   };
 
   // ========= 機種別（平均） =========
-  const buildAndSetGrouped = () => {
+  const buildAndSetGrouped = (loadedDatesOverride?: string[]) => {
     const allData = rawMapRef.current;
 
     // 読み込み済み日付（降順：最新→古い）
-    const loaded = Array.from(loadedDates).sort((a, b) => b.localeCompare(a));
+    const loaded = (loadedDatesOverride ?? Array.from(loadedDates)).sort((a, b) => b.localeCompare(a));
 
     // latest は読み込み済みの最新日付のデータ
     const latestKey = loaded[0];
@@ -438,10 +450,26 @@ const loadDates = async (dates: string[]) => {
     setColumnDefs(groupedCols);
   };
 
+  // ========= 末尾別（平均） =========
+  const buildAndSetTail = (loadedDatesOverride?: string[]) => {
+    const allData = rawMapRef.current;
+    const loaded = (loadedDatesOverride ?? Array.from(loadedDates)).sort((a, b) => b.localeCompare(a));
+    const effectiveLatestDate = pickEffectiveLatestDate(allData, loaded);
+
+    const tailRows = transformToTailGridData(allData);
+    const tailCols = buildTailColumnsForDates(loaded, effectiveLatestDate || '');
+
+    setRowData(tailRows);
+    setColumnDefs(tailCols);
+  };
+
   // ========= タブ切替 =========
   const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
-    const newMode: ViewMode = newValue === 0 ? 'number' : 'model';
+    const newMode: ViewMode = newValue === 0 ? 'number' : newValue === 1 ? 'model' : 'tail';
     setViewMode(newMode);
+    if (newMode === 'tail') {
+      setSelectedName('');
+    }
 
     // スクロールリセット
     const gridBody = document.querySelector('.ag-body-viewport') as HTMLElement;
@@ -453,8 +481,9 @@ const loadDates = async (dates: string[]) => {
     }, 0);
 
     if (newMode === 'model') {
-      // ★ 機種別（平均）を構成
       buildAndSetGrouped();
+    } else if (newMode === 'tail') {
+      buildAndSetTail();
     } else {
       // ★ 台番別に“確実に”戻す（ref に保持していた元データを復元）
       setRowData(numberRowDataRef.current);
@@ -462,7 +491,7 @@ const loadDates = async (dates: string[]) => {
     }
   };
 
-  const tabValue = viewMode === 'number' ? 0 : 1;
+  const tabValue = viewMode === 'number' ? 0 : viewMode === 'model' ? 1 : 2;
 
   // ===== CSVユーティリティ（api不使用）ここから =====
   const escapeCsv = (val: any): string => {
@@ -680,6 +709,13 @@ const loadDates = async (dates: string[]) => {
               fontSize: '0.8rem' // フォントサイズ調整
             }}
           />
+          <Tab label="末尾別（平均）" 
+            sx={{
+              minHeight: 24,
+              paddingY: 0,
+              fontSize: '0.8rem'
+            }}
+          />
         </Tabs>
       </Box>
 
@@ -697,7 +733,7 @@ const loadDates = async (dates: string[]) => {
             suppressHorizontalScroll={false}
             suppressRowVirtualisation={disableVirtualization}
             suppressColumnVirtualisation={disableVirtualization}
-            rowHeight={22}
+            getRowHeight={() => (viewMode === 'tail' ? 34 : 22)}
             headerHeight={20}
             defaultColDef={{
               resizable: false,
@@ -740,32 +776,34 @@ const loadDates = async (dates: string[]) => {
 
       {/* フィルタ（機種名） */}
       <div style={{ marginTop: 6, height: "5vh" }}>
-      <FormControl variant="outlined"  fullWidth style={{ width: 240 }}>
-        <Select
-          labelId="machine-select-label"
-          value={selectedName}
-          onChange={handleSelectChange}
-          displayEmpty
-          style={{ height: 30, fontSize: "0.8em" }}
-        >
-          <MenuItem value="" selected>
-            <em>すべての機種を表示</em>
-          </MenuItem>
-          {Array.from(
-            new Set(
-              rowData
-                .map((r) => r.name ?? r.modelName)
-                .filter((v) => !!v)
+      {viewMode !== 'tail' ? (
+        <FormControl variant="outlined"  fullWidth style={{ width: 240 }}>
+          <Select
+            labelId="machine-select-label"
+            value={selectedName}
+            onChange={handleSelectChange}
+            displayEmpty
+            style={{ height: 30, fontSize: "0.8em" }}
+          >
+            <MenuItem value="" selected>
+              <em>すべての機種を表示</em>
+            </MenuItem>
+            {Array.from(
+              new Set(
+                rowData
+                  .map((r) => r.name ?? r.modelName)
+                  .filter((v) => !!v)
+              )
             )
-          )
-            .sort((a: any, b: any) => String(a).localeCompare(String(b), 'ja'))
-            .map((name: any) => (
-              <MenuItem key={name} value={name}>
-                {name}
-              </MenuItem>
-            ))}
-        </Select>
-      </FormControl>
+              .sort((a: any, b: any) => String(a).localeCompare(String(b), 'ja'))
+              .map((name: any) => (
+                <MenuItem key={name} value={name}>
+                  {name}
+                </MenuItem>
+              ))}
+          </Select>
+        </FormControl>
+      ) : <div style={{ width: 240 }} />}
 
       <Button
         variant="contained"
@@ -855,6 +893,7 @@ const loadDates = async (dates: string[]) => {
               if (!row.flag) row.flag = {};
               row.flag[dateField] = selectedFlag;
             });
+            pendingScrollRestoreRef.current = getCurrentVerticalScrollTop();
             setRowData(prev =>
               prev.map((r: any) => {
                 const nm = r.name ?? r.modelName;
@@ -1248,6 +1287,112 @@ function buildGroupedColumnsForDates(
   }));
 
   return [...cols, ...dynamic];
+}
+
+function buildTailColumnsForDates(dates: string[], latestDate: string): ColDef[] {
+  const parseTailCell = (value: any): { avg: number; ratio: string; winRate: number } | null => {
+    if (typeof value !== 'string') return null;
+    const m = value.match(/^(-?\d+)\((\d+)\/(\d+)\)$/);
+    if (!m) return null;
+    const avg = Number(m[1]);
+    const winCount = Number(m[2]);
+    const totalCount = Number(m[3]);
+    if (!Number.isFinite(avg) || !Number.isFinite(winCount) || !Number.isFinite(totalCount) || totalCount <= 0) {
+      return null;
+    }
+    return { avg, ratio: `(${winCount}/${totalCount})`, winRate: winCount / totalCount };
+  };
+
+  const parseTailAverage = (value: any): number | null => {
+    if (typeof value === 'number') return value;
+    const parsed = parseTailCell(value);
+    return parsed ? parsed.avg : null;
+  };
+
+  const getHeatmapColor = (winRate: number): string | undefined => {
+    // 勝率40%以下は無色、40%超を薄い赤〜濃い赤にマップ
+    if (winRate <= 0.4) return undefined;
+    const clamped = Math.max(0.4, Math.min(1, winRate));
+    const normalized = (clamped - 0.4) / 0.6; // 0..1
+    const alpha = 0.12 + normalized * 0.73;
+    return `rgba(255, 40, 40, ${alpha.toFixed(3)})`;
+  };
+
+  const isMissingLatest = (row: any) => {
+    if (!latestDate) return false;
+    const v = row?.[latestDate];
+    return v === undefined || v === null || v === '-';
+  };
+
+  const sortedDates = [...dates].sort((a, b) => b.localeCompare(a));
+  const dynamicCols: ColDef[] = sortedDates.map((date) => ({
+    headerName: formatDate(date),
+    field: date,
+    width: 60,
+    cellRenderer: (params: any) => {
+      const parsed = parseTailCell(params.value);
+      if (!parsed) return params.value;
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.1 }}>
+          <span>{parsed.avg}</span>
+          <span style={{ fontSize: '0.7em' }}>{(parsed.winRate * 100).toFixed(1)}%</span>
+          <span style={{ fontSize: '0.65em' }}>{parsed.ratio}</span>
+        </div>
+      );
+    },
+    cellStyle: (params) => {
+      const v = params.value;
+      const parsed = parseTailCell(v);
+      let color = '#333';
+      const avg = parseTailAverage(v);
+      if (avg !== null) {
+        color = avg >= 0 ? '#4c6cb3' : '#d9333f';
+      }
+
+      let backgroundColor: string | undefined;
+      if (isMissingLatest(params.data)) {
+        backgroundColor = '#e0e0e0';
+        color = '#666';
+      } else if (parsed) {
+        backgroundColor = getHeatmapColor(parsed.winRate);
+      }
+
+      return {
+        color,
+        fontSize: '0.8em',
+        padding: 0,
+        fontWeight: 'bold',
+        textAlign: 'center',
+        whiteSpace: 'normal',
+        borderRight: '1px solid #ccc',
+        backgroundColor,
+      } as any;
+    },
+  }));
+
+  return [
+    {
+      headerName: '末尾',
+      field: 'tailLabel',
+      pinned: 'left',
+      width: 90,
+      cellStyle: (params) => {
+        const base: any = {
+          fontSize: '0.75rem',
+          padding: 0,
+          textAlign: 'center',
+          fontWeight: 'bold',
+          borderRight: '1px solid #ccc',
+        };
+        if (isMissingLatest(params?.data)) {
+          base.backgroundColor = '#e0e0e0';
+          base.color = '#666';
+        }
+        return base;
+      },
+    },
+    ...dynamicCols,
+  ];
 }
 
 function getPastDates(days: number, offset: number): string[] {

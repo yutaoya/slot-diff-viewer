@@ -10,6 +10,7 @@ const STORE_NAME: Record<string, string> = {
   maruhan_chuou: 'マルハン浜松中央',
   concorde_ichino: 'SUPER CONCORDE 市野',
   rakuen_zaza: '楽園 ザザシティ',
+  concorde_kido: 'FLOWERR CONCORDE 木戸',
 };
 
 function StorePage() {
@@ -18,7 +19,7 @@ function StorePage() {
 
   useEffect(() => {
     const display = STORE_NAME[storeId] ?? storeId;
-    document.title = `${display} | 石破おろし`;
+    document.title = `${display} | ゼッタイニツモレール`;
   }, [storeId]);
 
   return (
