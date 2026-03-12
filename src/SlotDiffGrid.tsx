@@ -981,16 +981,30 @@ const loadDates = async (dates: string[]) => {
         }}
         footer={null}
         width={420}
-        styles={{ body: { maxHeight: '72vh', overflowY: 'auto' } }}
+        style={{ top: 12 }}
+        styles={{
+          body: {
+            maxHeight: 'calc(100dvh - 140px)',
+            overflowY: 'auto',
+            WebkitOverflowScrolling: 'touch',
+          },
+        }}
       >
         {todayDetailItem ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {todayDetailItem.graphImageUrl ? (
-              <div style={{ border: '1px solid #ddd', borderRadius: 4, overflow: 'hidden' }}>
+              <div
+                style={{
+                  border: '1px solid #ddd',
+                  borderRadius: 4,
+                  overflow: 'hidden',
+                  backgroundColor: '#f2f2f2',
+                }}
+              >
                 <img
                   src={todayDetailItem.graphImageUrl}
                   alt="当日グラフ"
-                  style={{ width: '100%', display: 'block' }}
+                  style={{ width: '100%', height: '100%', display: 'block', objectFit: 'contain' }}
                 />
               </div>
             ) : (
@@ -1367,8 +1381,7 @@ function buildNumberColumns(
       headerName: '当日',
       field: 'todayDiff',
       hide: !hasTodayDiffData,
-      pinned: 'left',
-      width: 70,
+      width: 60,
       cellRenderer: 'customCellRenderer',
       cellRendererParams: { showModal },
       valueFormatter: (p: any) => {
@@ -1392,7 +1405,6 @@ function buildNumberColumns(
           fontWeight: 'bold',
           textAlign: 'center',
           backgroundColor: '#fff7cc',
-          borderLeft: '1px solid #ccc',
           borderRight: '1px solid #ccc',
         };
         if (!p?.data) return base;
@@ -1527,8 +1539,7 @@ function buildGroupedColumnsForDates(
       headerName: '当日',
       field: 'todayDiff',
       hide: !hasTodayDiffData,
-      pinned: 'left',
-      width: 70,
+      width: 60,
       valueFormatter: (p: any) => {
         const v = p?.value;
         if (v === undefined || v === null || v === '-') return '-';
@@ -1546,7 +1557,6 @@ function buildGroupedColumnsForDates(
           fontWeight: 'bold',
           textAlign: 'center',
           backgroundColor: '#fff7cc',
-          borderLeft: '1px solid #ccc',
           borderRight: '1px solid #ccc',
         };
         if (!p?.data) return base;
@@ -1723,8 +1733,7 @@ function buildTailColumnsForDates(dates: string[], latestDate: string, hasTodayD
       headerName: '当日',
       field: 'todayDiff',
       hide: !hasTodayDiffData,
-      pinned: 'left',
-      width: 90,
+      width: 60,
       cellRenderer: (params: any) => {
         const parsed = parseTailCell(params.value);
         if (!parsed) return params.value;
@@ -1751,7 +1760,6 @@ function buildTailColumnsForDates(dates: string[], latestDate: string, hasTodayD
           fontWeight: 'bold',
           textAlign: 'center',
           whiteSpace: 'normal',
-          borderLeft: '1px solid #ccc',
           borderRight: '1px solid #ccc',
           backgroundColor: '#fff7cc',
         };
