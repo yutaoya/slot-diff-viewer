@@ -21,10 +21,12 @@
     "exceljs": "^4.4.0",
     "file-saver": "^2.0.5",
     "firebase": "^12.0.0",
+    "framer-motion": "^12.36.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-router-dom": "^7.8.1",
     "react-scripts": "5.0.1",
+    "react-swipeable": "^7.0.2",
     "typescript": "^4.9.5",
     "web-vitals": "^2.1.4",
     "xlsx": "^0.18.5"

@@ -13,6 +13,8 @@ import 'ag-grid-community/styles/ag-theme-alpine.css';
 import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
+import { useSwipeable } from 'react-swipeable';
+import { AnimatePresence, motion } from 'framer-motion';
 
 // データ関連（パスは環境に合わせて）
 import { fetchSlotDiffs } from './dataFetcher';
@@ -43,6 +45,15 @@ interface Props {
 
 type ViewMode = 'number' | 'model' | 'tail'; // 台番別 / 機種別（平均）/ 末尾別
 
+type TodayOatariHistoryRow = {
+  count?: string;
+  kind?: string;
+  time?: string;
+  game?: string;
+  payout?: string;
+  isArtOrRt?: boolean;
+};
+
 type TodaySnapshotItem = {
   machineNumber?: number | string;
   name?: string;
@@ -50,6 +61,7 @@ type TodaySnapshotItem = {
   currentUrl?: string;
   graphImageUrl?: string;
   dataUpdatedAt?: string;
+  scrapedAt?: string;
   totalGameCount?: string;
   bbCount?: string;
   rbCount?: string;
@@ -59,14 +71,8 @@ type TodaySnapshotItem = {
   rbProbability?: string;
   combinedProbability?: string;
   rateLabel?: string;
-  oatariHistory?: Array<{
-    count?: string;
-    kind?: string;
-    time?: string;
-    game?: string;
-    payout?: string;
-    isArtOrRt?: boolean;
-  }>;
+  oatariHistoryStorage?: string;
+  oatariHistory?: TodayOatariHistoryRow[]; // 旧形式フォールバック
 };
 
 export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
@@ -87,6 +93,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const didInitRef = useRef(false);
 
   const [viewMode, setViewMode] = useState<ViewMode>('number');
+  const viewModeRef = useRef<ViewMode>('number');
   const [disableVirtualization, setDisableVirtualization] = useState(false);
   const virtualizationPendingRef = useRef(false);
 
@@ -98,6 +105,21 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const [selectedRowId, setSelectedRowId] = useState<string | number | null>(null);
   const [todayDetailModalOpen, setTodayDetailModalOpen] = useState(false);
   const [todayDetailItem, setTodayDetailItem] = useState<TodaySnapshotItem | null>(null);
+  const [todayDetailMachineKey, setTodayDetailMachineKey] = useState<string | null>(null);
+  const [todayDetailFromGallery, setTodayDetailFromGallery] = useState(false);
+  const [todayGalleryModalOpen, setTodayGalleryModalOpen] = useState(false);
+  const [todayGalleryTitle, setTodayGalleryTitle] = useState('');
+  const [todayGalleryItems, setTodayGalleryItems] = useState<
+    Array<{ machineKey: string; snapshot: TodaySnapshotItem }>
+  >([]);
+  const [todayDetailAnimName, setTodayDetailAnimName] = useState<'none' | 'slideLeft' | 'slideRight'>('none');
+  const [todayDetailAnimTick, setTodayDetailAnimTick] = useState(0);
+  const [todaySwipeHintDx, setTodaySwipeHintDx] = useState(0);
+  const [todayOatariHistoryRows, setTodayOatariHistoryRows] = useState<TodayOatariHistoryRow[]>([]);
+  const [todayOatariHistoryLoading, setTodayOatariHistoryLoading] = useState(false);
+  const [todayOatariHistoryCount, setTodayOatariHistoryCount] = useState<number | null>(null);
+  const todayOatariHistoryReqRef = useRef(0);
+  const todayMachineOrderRef = useRef<string[]>([]);
 
 
   // 機種名フィルタ
@@ -109,6 +131,9 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const tooltipTextMapRef = useRef<Record<string, string>>({});
   const todaySnapshotMapRef = useRef<Record<string, TodaySnapshotItem>>({});
   const [todayDiffMap, setTodayDiffMap] = useState<Record<string, number>>({});
+  const [todaySnapshotDateKey, setTodaySnapshotDateKey] = useState('');
+  const todaySnapshotDocIdRef = useRef('');
+  const [todayColumnHeader, setTodayColumnHeader] = useState('本日');
   const [hasTodayDiffData, setHasTodayDiffData] = useState(false);
 
   const rowDataRef = useRef<any[]>([]);  // ★ 追加
@@ -152,6 +177,10 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   useEffect(() => {
     rowDataMirrorRef.current = rowData;
   }, [rowData]);
+
+  useEffect(() => {
+    viewModeRef.current = viewMode;
+  }, [viewMode]);
 
   useEffect(() => {
     if (!machineTooltip) return;
@@ -218,20 +247,31 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     let cancelled = false;
     const loadTodaySnapshot = async () => {
       try {
-        const todayKey = dayjs().tz('Asia/Tokyo').format('YYYYMMDD');
+        const nowJst = dayjs().tz('Asia/Tokyo');
+        const todayKey = nowJst.hour() < 8
+          ? nowJst.subtract(1, 'day').format('YYYYMMDD')
+          : nowJst.format('YYYYMMDD');
+        const currentKey = nowJst.format('YYYYMMDD');
+        const nextHeader = todayKey === currentKey ? '本日' : '前日';
+        if (!cancelled) setTodaySnapshotDateKey(todayKey);
+        if (!cancelled) setTodayColumnHeader(nextHeader);
         const snapshotId = `${storeId}_${todayKey}`;
+        todaySnapshotDocIdRef.current = snapshotId;
         const snap = await getDoc(doc(db, 'site777Snapshots', snapshotId));
         if (!snap.exists()) {
           if (!cancelled) {
             setTodayDiffMap({});
             setHasTodayDiffData(false);
             todaySnapshotMapRef.current = {};
+            todaySnapshotDocIdRef.current = '';
           }
           return;
         }
 
-        const payload = snap.data() as { data?: Record<string, any> };
+        const payload = snap.data() as { data?: Record<string, any>; oatariHistoryStorage?: string };
         const entries = payload?.data ?? {};
+        const rootOatariHistoryStorage =
+          typeof payload?.oatariHistoryStorage === 'string' ? payload.oatariHistoryStorage : undefined;
         const nextMap: Record<string, number> = {};
         const detailMap: Record<string, TodaySnapshotItem> = {};
 
@@ -241,7 +281,12 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
           const n = typeof currentDiff === 'number'
             ? currentDiff
             : (typeof currentDiff === 'string' && currentDiff.trim() !== '' ? Number(currentDiff) : NaN);
-          detailMap[machineKey] = item as TodaySnapshotItem;
+          const perMachineStorage =
+            typeof item?.oatariHistoryStorage === 'string' ? item.oatariHistoryStorage : undefined;
+          detailMap[machineKey] = {
+            ...(item as TodaySnapshotItem),
+            oatariHistoryStorage: perMachineStorage ?? rootOatariHistoryStorage,
+          };
           if (Number.isFinite(n)) {
             nextMap[machineKey] = n;
           }
@@ -259,6 +304,9 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
           setTodayDiffMap({});
           setHasTodayDiffData(false);
           todaySnapshotMapRef.current = {};
+          setTodaySnapshotDateKey('');
+          todaySnapshotDocIdRef.current = '';
+          setTodayColumnHeader('本日');
         }
       }
     };
@@ -271,7 +319,11 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
 
   useEffect(() => {
     if (numberRowDataRef.current.length === 0) return;
-    numberRowDataRef.current = applyTodayDiffToRows(numberRowDataRef.current, todayDiffMap);
+    numberRowDataRef.current = applyTodayDiffToRows(
+      numberRowDataRef.current,
+      todayDiffMap,
+      todaySnapshotDateKey
+    );
     if (viewMode === 'number') {
       setRowData(numberRowDataRef.current);
       return;
@@ -283,22 +335,19 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     if (viewMode === 'tail') {
       buildAndSetTail();
     }
-  }, [todayDiffMap, viewMode]);
+  }, [todayDiffMap, todaySnapshotDateKey, viewMode]);
 
   useEffect(() => {
-    const updateTodayColumnVisibility = (cols: ColDef[]) =>
+    const updateTodayColumnMetadata = (cols: ColDef[]) =>
       (cols ?? []).map((col) => (
         col?.field === 'todayDiff'
-          ? { ...col, hide: !hasTodayDiffData }
+          ? { ...col, hide: !hasTodayDiffData, headerName: todayColumnHeader }
           : col
       ));
 
-    numberColDefsRef.current = updateTodayColumnVisibility(numberColDefsRef.current);
-
-    if (viewMode === 'number') {
-      setColumnDefs(numberColDefsRef.current);
-    }
-  }, [hasTodayDiffData, viewMode]);
+    numberColDefsRef.current = updateTodayColumnMetadata(numberColDefsRef.current);
+    setColumnDefs((prev) => updateTodayColumnMetadata(prev));
+  }, [hasTodayDiffData, todayColumnHeader]);
 
   useEffect(() => {
     if (modalOpen && selectedCell) {
@@ -329,11 +378,21 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     return rowData.filter((r) => (r.name ?? r.modelName) === selectedName);
   }, [selectedName, rowData, viewMode]);
 
+  useEffect(() => {
+    if (viewMode !== 'number') {
+      todayMachineOrderRef.current = [];
+      return;
+    }
+    todayMachineOrderRef.current = (filteredRowData ?? [])
+      .filter((r: any) => !r?.isTotalRow && r?.machineNumber != null)
+      .map((r: any) => String(r.machineNumber));
+  }, [filteredRowData, viewMode]);
+
   const loadInitialData = async () => {
     const nowJST = dayjs().tz('Asia/Tokyo');
     const hour = nowJST.hour();
     // const minute = nowJST.minute();
-    const isBefore = hour < 1;
+    const isBefore = hour < 8;
     const offset = isBefore ? 2 : 1;
 
     const initialDates = getPastDates(30, offset);
@@ -354,11 +413,38 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
 
   const showModal = useCallback((value: any, row: any, field: string) => {
     if (field === 'todayDiff') {
+      if (viewModeRef.current === 'model') {
+        if (!row || row?.isTotalRow) return;
+        const machineNumbers = Array.isArray(row?.machineNumbers)
+          ? row.machineNumbers.map((v: any) => String(v).trim()).filter((v: string) => !!v)
+          : [];
+        const candidates: Array<{ machineKey: string; snapshot?: TodaySnapshotItem }> = machineNumbers
+          .map((machineKey: string) => ({ machineKey, snapshot: todaySnapshotMapRef.current[machineKey] }));
+        const items = candidates
+          .filter((entry) => !!entry.snapshot?.graphImageUrl)
+          .sort((a, b) => {
+            const ai = Number(a.machineKey);
+            const bi = Number(b.machineKey);
+            if (Number.isFinite(ai) && Number.isFinite(bi)) return ai - bi;
+            return a.machineKey.localeCompare(b.machineKey, 'ja');
+          })
+          .map((entry) => ({ machineKey: entry.machineKey, snapshot: entry.snapshot as TodaySnapshotItem }));
+        const modelName = String(row?.name ?? row?.modelName ?? '').trim();
+        setTodayGalleryTitle(modelName || '機種別');
+        setTodayGalleryItems(items);
+        setTodayGalleryModalOpen(true);
+        return;
+      }
       const machineKey = String(row?.machineNumber ?? '');
       const snapshot = todaySnapshotMapRef.current[machineKey];
       if (!snapshot) return;
+      setTodayDetailFromGallery(false);
+      setTodayDetailAnimName('none');
+      setTodayDetailAnimTick((v) => v + 1);
+      setTodayDetailMachineKey(machineKey);
       setTodayDetailItem(snapshot);
       setTodayDetailModalOpen(true);
+      void loadTodayOatariHistory(machineKey, snapshot);
       return;
     }
     setSelectedCell({ value, rowData: row, field });
@@ -376,6 +462,147 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     if (machineNumber == null) return undefined;
     return tooltipTextMapRef.current[String(machineNumber)];
   }, []);
+
+  const buildTodayGraphUrl = useCallback((item: TodaySnapshotItem | null | undefined) => {
+    const rawUrl = item?.graphImageUrl;
+    if (!rawUrl) return '';
+    const version = item?.scrapedAt || item?.dataUpdatedAt || todaySnapshotDateKey || '';
+    if (!version) return rawUrl;
+    const sep = rawUrl.includes('?') ? '&' : '?';
+    return `${rawUrl}${sep}v=${encodeURIComponent(version)}`;
+  }, [todaySnapshotDateKey]);
+
+  const parseTodayOatariHistory = useCallback((raw: any): TodayOatariHistoryRow[] => {
+    if (Array.isArray(raw)) {
+      return raw as TodayOatariHistoryRow[];
+    }
+    if (typeof raw === 'string') {
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? (parsed as TodayOatariHistoryRow[]) : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  }, []);
+
+  const loadTodayOatariHistory = useCallback(async (machineKey: string, snapshot: TodaySnapshotItem) => {
+    const reqId = ++todayOatariHistoryReqRef.current;
+    setTodayOatariHistoryLoading(true);
+    setTodayOatariHistoryRows([]);
+    setTodayOatariHistoryCount(null);
+
+    try {
+      const useSubcollection = snapshot?.oatariHistoryStorage === 'subcollection';
+      const isStorageUnset =
+        snapshot?.oatariHistoryStorage === undefined || snapshot?.oatariHistoryStorage === null;
+      const snapshotDocId = todaySnapshotDocIdRef.current;
+      const trySubcollectionFirst = !!snapshotDocId && (useSubcollection || isStorageUnset);
+      if (trySubcollectionFirst) {
+        const ref = doc(db, 'site777Snapshots', snapshotDocId, 'oatariHistories', machineKey);
+        const histSnap = await getDoc(ref);
+        if (reqId !== todayOatariHistoryReqRef.current) return;
+
+        if (!histSnap.exists()) {
+          // subcollection 未作成時は旧形式にフォールバック
+        } else {
+          const data = histSnap.data() as {
+            oatariHistoryJson?: unknown;
+            oatariHistoryCount?: number | string;
+          };
+          const rows = parseTodayOatariHistory(data?.oatariHistoryJson);
+          const countRaw = data?.oatariHistoryCount;
+          const count = typeof countRaw === 'number' ? countRaw : Number(countRaw);
+          setTodayOatariHistoryRows(rows);
+          setTodayOatariHistoryCount(Number.isFinite(count) ? count : rows.length);
+          return;
+        }
+      }
+
+      const fallbackRows = parseTodayOatariHistory(snapshot?.oatariHistory);
+      if (reqId !== todayOatariHistoryReqRef.current) return;
+      setTodayOatariHistoryRows(fallbackRows);
+      setTodayOatariHistoryCount(fallbackRows.length);
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error('Failed to load oatariHistories subcollection:', error);
+      if (reqId !== todayOatariHistoryReqRef.current) return;
+      setTodayOatariHistoryRows([]);
+      setTodayOatariHistoryCount(0);
+    } finally {
+      if (reqId === todayOatariHistoryReqRef.current) {
+        setTodayOatariHistoryLoading(false);
+      }
+    }
+  }, [parseTodayOatariHistory]);
+
+  const openTodayDetailByMachineKey = useCallback(async (
+    machineKey: string,
+    direction: -1 | 0 | 1 = 0
+  ) => {
+    const snapshot = todaySnapshotMapRef.current[machineKey];
+    if (!snapshot) return;
+    setTodayDetailAnimName(direction > 0 ? 'slideLeft' : direction < 0 ? 'slideRight' : 'none');
+    setTodayDetailAnimTick((v) => v + 1);
+    setTodayDetailMachineKey(machineKey);
+    setTodayDetailItem(snapshot);
+    setTodayDetailModalOpen(true);
+    void loadTodayOatariHistory(machineKey, snapshot);
+  }, [loadTodayOatariHistory]);
+
+  const moveTodayDetailMachine = useCallback((delta: number) => {
+    const machineKey = todayDetailMachineKey;
+    if (!machineKey) return;
+    const order = todayMachineOrderRef.current;
+    if (!Array.isArray(order) || order.length === 0) return;
+    const currentIndex = order.indexOf(machineKey);
+    if (currentIndex < 0) return;
+    const nextIndex = currentIndex + delta;
+    if (nextIndex < 0 || nextIndex >= order.length) return;
+    const nextKey = order[nextIndex];
+    if (!nextKey) return;
+    void openTodayDetailByMachineKey(nextKey, delta > 0 ? 1 : -1);
+  }, [todayDetailMachineKey, openTodayDetailByMachineKey]);
+
+  const openTodayDetailFromGallery = useCallback((machineKey: string) => {
+    const galleryOrder = todayGalleryItems
+      .map((item) => String(item.machineKey ?? '').trim())
+      .filter((key) => !!key);
+    if (galleryOrder.length > 0) {
+      todayMachineOrderRef.current = galleryOrder;
+    }
+    setTodayDetailFromGallery(true);
+    setTodayGalleryModalOpen(false);
+    requestAnimationFrame(() => {
+      void openTodayDetailByMachineKey(machineKey, 0);
+    });
+  }, [openTodayDetailByMachineKey, todayGalleryItems]);
+
+  const todaySwipeHandlers = useSwipeable({
+    delta: 48,
+    trackTouch: true,
+    trackMouse: false,
+    preventScrollOnSwipe: false,
+    onSwipeStart: () => {
+      setTodaySwipeHintDx(0);
+    },
+    onSwiping: (eventData) => {
+      if (eventData.absX <= eventData.absY) return;
+      setTodaySwipeHintDx(Math.max(-120, Math.min(120, eventData.deltaX)));
+    },
+    onSwipedLeft: () => {
+      setTodaySwipeHintDx(0);
+      moveTodayDetailMachine(1);
+    },
+    onSwipedRight: () => {
+      setTodaySwipeHintDx(0);
+      moveTodayDetailMachine(-1);
+    },
+    onSwiped: () => {
+      setTodaySwipeHintDx(0);
+    },
+  });
 
   const showMachineTooltip = useCallback((params: any) => {
     if (params?.colDef?.field !== 'machineNumber') {
@@ -436,7 +663,11 @@ const loadDates = async (dates: string[]) => {
 
   // 台番別の“元データ”を更新（next の順序を尊重）
   numberRowDataRef.current = mergeRowData(numberRowDataRef.current, numberRows);
-  numberRowDataRef.current = applyTodayDiffToRows(numberRowDataRef.current, todayDiffMap);
+  numberRowDataRef.current = applyTodayDiffToRows(
+    numberRowDataRef.current,
+    todayDiffMap,
+    todaySnapshotDateKey
+  );
 
   // ★ 実効的な最新日付が見つかった場合のみ「欠損を下へ」並べ替え
   if (effectiveLatestDate) {
@@ -452,6 +683,7 @@ const loadDates = async (dates: string[]) => {
     numberColDefsRef.current,
     showModal,
     effectiveLatestDate || '',
+    todayColumnHeader,
     hasTodayDiffData,
     getTooltipColor,
     getTooltipText
@@ -568,17 +800,22 @@ const loadDates = async (dates: string[]) => {
     const latest = (latestKey && allData[latestKey]) ? allData[latestKey] : Object.values(allData)[0] ?? {};
 
     // あなたの transform に合わせる（機種名＋各日付の平均差枚、台番は空欄）
+    const effectiveLatestDate = pickEffectiveLatestDate(allData, loaded);
     const groupedRows = transformToGroupedGridData(latest, allData);
-    const groupedWithToday = applyTodayDiffToGroupedRows(groupedRows, numberRowDataRef.current);
+    const groupedWithToday = applyTodayDiffToGroupedRows(
+      groupedRows,
+      numberRowDataRef.current,
+      effectiveLatestDate || ''
+    );
     setRowData(groupedWithToday);
 
     // 機種名（name優先、なければmodelName）＋日付列（降順）
-    const effectiveLatestDate = pickEffectiveLatestDate(allData, loaded);
     const groupedCols = buildGroupedColumnsForDates(
       loaded,
       [],
       showModal,
       effectiveLatestDate || '',
+      todayColumnHeader,
       hasTodayDiffData
     );
     setColumnDefs(groupedCols);
@@ -592,7 +829,12 @@ const loadDates = async (dates: string[]) => {
 
     const tailRows = transformToTailGridData(allData);
     const tailWithToday = applyTodayDiffToTailRows(tailRows, numberRowDataRef.current);
-    const tailCols = buildTailColumnsForDates(loaded, effectiveLatestDate || '', hasTodayDiffData);
+    const tailCols = buildTailColumnsForDates(
+      loaded,
+      effectiveLatestDate || '',
+      todayColumnHeader,
+      hasTodayDiffData
+    );
 
     setRowData(tailWithToday);
     setColumnDefs(tailCols);
@@ -821,6 +1063,7 @@ const loadDates = async (dates: string[]) => {
 
   return (
     <>
+      <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* 上部タブ */}
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 1, marginBottom: 0 }}>
       <Tabs
@@ -854,7 +1097,7 @@ const loadDates = async (dates: string[]) => {
         </Tabs>
       </Box>
 
-      <div style={{ height: '76vh', width: '100%' }}>
+      <div style={{ flex: 1, minHeight: 0, width: '100%' }}>
         <div className="ag-theme-alpine" style={{ height: '100%', width: '100%' }}>
           <AgGridReact
             ref={gridRef}
@@ -910,7 +1153,7 @@ const loadDates = async (dates: string[]) => {
       </div>
 
       {/* フィルタ（機種名） */}
-      <div style={{ marginTop: 6, height: "5vh" }}>
+      <div style={{ marginTop: 6, minHeight: 36, flexShrink: 0 }}>
       {viewMode !== 'tail' ? (
         <FormControl variant="outlined"  fullWidth style={{ width: 240 }}>
           <Select
@@ -949,6 +1192,7 @@ const loadDates = async (dates: string[]) => {
         Excel出力
       </Button>
       </div>
+      </div>
 
       {machineTooltip ? (
         <div
@@ -976,8 +1220,30 @@ const loadDates = async (dates: string[]) => {
         title={todayDetailItem ? `${todayDetailItem.machineNumber ?? '-'}番台 / ${todayDetailItem.name ?? '-'}` : ''}
         open={todayDetailModalOpen}
         onCancel={() => {
+          const shouldReturnToGallery = todayDetailFromGallery;
           setTodayDetailModalOpen(false);
           setTodayDetailItem(null);
+          setTodayDetailMachineKey(null);
+          setTodayDetailFromGallery(false);
+          todayOatariHistoryReqRef.current += 1;
+          setTodayOatariHistoryRows([]);
+          setTodayOatariHistoryCount(null);
+          setTodayOatariHistoryLoading(false);
+          setTodaySwipeHintDx(0);
+          if (shouldReturnToGallery) {
+            requestAnimationFrame(() => {
+              setTodayGalleryModalOpen(true);
+            });
+          }
+        }}
+        destroyOnClose
+        wrapClassName="today-detail-modal"
+        afterOpenChange={(open) => {
+          if (!open) return;
+          requestAnimationFrame(() => {
+            const body = document.querySelector('.today-detail-modal .ant-modal-body') as HTMLElement | null;
+            if (body) body.scrollTop = 0;
+          });
         }}
         footer={null}
         width={420}
@@ -991,7 +1257,74 @@ const loadDates = async (dates: string[]) => {
         }}
       >
         {todayDetailItem ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div
+            style={{ display: 'flex', flexDirection: 'column', gap: 10, touchAction: 'pan-y', position: 'relative' }}
+            {...todaySwipeHandlers}
+          >
+            <div
+              style={{
+                position: 'fixed',
+                left: 'calc(50vw - 196px)',
+                top: '50dvh',
+                width: 28,
+                height: 28,
+                borderRadius: 14,
+                background: 'rgba(0,0,0,0.36)',
+                color: '#fff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 16,
+                fontWeight: 700,
+                opacity: todaySwipeHintDx > 0 ? Math.min(0.85, 0.25 + Math.abs(todaySwipeHintDx) / 110) : 0,
+                transform: `translateX(${Math.max(0, todaySwipeHintDx * 0.18)}px)`,
+                transition: 'opacity 140ms ease, transform 140ms ease',
+                pointerEvents: 'none',
+                zIndex: 10000,
+                marginTop: -14,
+              }}
+            >
+              ←
+            </div>
+            <div
+              style={{
+                position: 'fixed',
+                left: 'calc(50vw + 168px)',
+                top: '50dvh',
+                width: 28,
+                height: 28,
+                borderRadius: 14,
+                background: 'rgba(0,0,0,0.36)',
+                color: '#fff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 16,
+                fontWeight: 700,
+                opacity: todaySwipeHintDx < 0 ? Math.min(0.85, 0.25 + Math.abs(todaySwipeHintDx) / 110) : 0,
+                transform: `translateX(${Math.min(0, todaySwipeHintDx * 0.18)}px)`,
+                transition: 'opacity 140ms ease, transform 140ms ease',
+                pointerEvents: 'none',
+                zIndex: 10000,
+                marginTop: -14,
+              }}
+            >
+              →
+            </div>
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={`${todayDetailMachineKey ?? 'none'}_${todayDetailAnimTick}`}
+                initial={
+                  todayDetailAnimName === 'slideLeft'
+                    ? { opacity: 0.72, x: 18 }
+                    : todayDetailAnimName === 'slideRight'
+                      ? { opacity: 0.72, x: -18 }
+                      : { opacity: 1, x: 0 }
+                }
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.18, ease: 'easeOut' }}
+              >
             {todayDetailItem.graphImageUrl ? (
               <div
                 style={{
@@ -1002,8 +1335,8 @@ const loadDates = async (dates: string[]) => {
                 }}
               >
                 <img
-                  src={todayDetailItem.graphImageUrl}
-                  alt="当日グラフ"
+                  src={buildTodayGraphUrl(todayDetailItem)}
+                  alt="本日グラフ"
                   style={{ width: '100%', height: '100%', display: 'block', objectFit: 'contain' }}
                 />
               </div>
@@ -1020,12 +1353,15 @@ const loadDates = async (dates: string[]) => {
               <div>RB確率: {todayDetailItem.rbProbability ?? '-'}</div>
               <div>ART回数: {todayDetailItem.artCount ?? '-'}</div>
               <div>合成確率: {todayDetailItem.combinedProbability ?? '-'}</div>
-              <div>当日差枚: {todayDetailItem.currentDifference ?? '-'}</div>
+              <div>本日差枚: {todayDetailItem.currentDifference ?? '-'}</div>
               <div>更新: {todayDetailItem.dataUpdatedAt ?? '-'}</div>
             </div>
 
             <div style={{ marginTop: 4 }}>
-              <div style={{ fontWeight: 700, marginBottom: 6 }}>大当り履歴</div>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>
+                大当り履歴
+                {todayOatariHistoryCount != null ? ` (${todayOatariHistoryCount})` : ''}
+              </div>
               <div style={{ border: '1px solid #d9d9d9', overflow: 'hidden', backgroundColor: '#f6f6f6' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.82em' }}>
                   <thead>
@@ -1038,8 +1374,14 @@ const loadDates = async (dates: string[]) => {
                     </tr>
                   </thead>
                   <tbody>
-                    {Array.isArray(todayDetailItem.oatariHistory) && todayDetailItem.oatariHistory.length > 0 ? (
-                      todayDetailItem.oatariHistory.map((h, idx) => {
+                    {todayOatariHistoryLoading ? (
+                      <tr>
+                        <td colSpan={5} style={{ border: '1px solid #cfcfcf', padding: '8px 4px', textAlign: 'center', color: '#666' }}>
+                          履歴を読み込み中...
+                        </td>
+                      </tr>
+                    ) : todayOatariHistoryRows.length > 0 ? (
+                      todayOatariHistoryRows.map((h, idx) => {
                         const isArtOrRt = !!h?.isArtOrRt;
                         const kind = String(h?.kind ?? '--').toUpperCase();
                         let kindBg: string | undefined;
@@ -1083,9 +1425,78 @@ const loadDates = async (dates: string[]) => {
                 </table>
               </div>
             </div>
+              </motion.div>
+            </AnimatePresence>
 
           </div>
         ) : null}
+      </Modal>
+
+      <Modal
+        title={todayGalleryTitle || ''}
+        open={todayGalleryModalOpen}
+        onCancel={() => {
+          setTodayGalleryModalOpen(false);
+          setTodayGalleryTitle('');
+          setTodayGalleryItems([]);
+        }}
+        destroyOnClose
+        footer={null}
+        width={420}
+        style={{ top: 12 }}
+        styles={{
+          body: {
+            maxHeight: 'calc(100dvh - 140px)',
+            overflowY: 'auto',
+            WebkitOverflowScrolling: 'touch',
+          },
+        }}
+      >
+        {todayGalleryItems.length > 0 ? (
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+              gap: 8,
+            }}
+          >
+            {todayGalleryItems.map(({ machineKey, snapshot }) => (
+              <div
+                key={`gallery_${machineKey}`}
+                onClick={() => openTodayDetailFromGallery(machineKey)}
+                style={{
+                  border: '1px solid #ddd',
+                  borderRadius: 4,
+                  overflow: 'hidden',
+                  backgroundColor: '#f7f7f7',
+                  cursor: 'pointer',
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: '0.8em',
+                    fontWeight: 700,
+                    textAlign: 'center',
+                    padding: '4px 2px',
+                    borderBottom: '1px solid #e1e1e1',
+                    backgroundColor: '#fff',
+                  }}
+                >
+                  {snapshot?.machineNumber ?? machineKey}番台
+                </div>
+                <img
+                  src={buildTodayGraphUrl(snapshot)}
+                  alt={`${snapshot?.machineNumber ?? machineKey}番台の本日グラフ`}
+                  style={{ width: '100%', display: 'block' }}
+                />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ textAlign: 'center', color: '#888', padding: '12px 0' }}>
+            表示できるグラフ画像がありません
+          </div>
+        )}
       </Modal>
 
       {/* モーダル（台番別のみ） */}
@@ -1297,6 +1708,7 @@ function buildNumberColumns(
   existing: ColDef[],
   showModal: Function,
   latestDate: string,        // ★ 追加
+  todayColumnHeader: string,
   hasTodayDiffData: boolean,
   getTooltipColor: (machineNumber: number | string | null | undefined) => string | undefined,
   getTooltipText: (machineNumber: number | string | null | undefined) => string | undefined
@@ -1378,7 +1790,7 @@ function buildNumberColumns(
 
   if (!existingFields.has('todayDiff')) {
     cols.push({
-      headerName: '当日',
+      headerName: todayColumnHeader,
       field: 'todayDiff',
       hide: !hasTodayDiffData,
       width: 60,
@@ -1500,6 +1912,7 @@ function buildGroupedColumnsForDates(
   existing: ColDef[],
   showModal: (value: any, row: any, field: string) => void,
   latestDate: string,
+  todayColumnHeader: string,
   hasTodayDiffData: boolean
 ): ColDef[] {  const existingFields = new Set(existing.map(c => c.field));
   const cols: ColDef[] = [];
@@ -1536,10 +1949,12 @@ function buildGroupedColumnsForDates(
 
   if (!existingFields.has('todayDiff')) {
     cols.push({
-      headerName: '当日',
+      headerName: todayColumnHeader,
       field: 'todayDiff',
       hide: !hasTodayDiffData,
       width: 60,
+      cellRenderer: 'groupedCellRenderer',
+      cellRendererParams: { showModal },
       valueFormatter: (p: any) => {
         const v = p?.value;
         if (v === undefined || v === null || v === '-') return '-';
@@ -1627,7 +2042,12 @@ function buildGroupedColumnsForDates(
   return [...cols, ...dynamic];
 }
 
-function buildTailColumnsForDates(dates: string[], latestDate: string, hasTodayDiffData: boolean): ColDef[] {
+function buildTailColumnsForDates(
+  dates: string[],
+  latestDate: string,
+  todayColumnHeader: string,
+  hasTodayDiffData: boolean
+): ColDef[] {
   const parseTailCell = (value: any): { avg: number; ratio: string; winRate: number } | null => {
     if (typeof value !== 'string') return null;
     const m = value.match(/^(-?\d+)\((\d+)\/(\d+)\)$/);
@@ -1730,7 +2150,7 @@ function buildTailColumnsForDates(dates: string[], latestDate: string, hasTodayD
       },
     },
     {
-      headerName: '当日',
+      headerName: todayColumnHeader,
       field: 'todayDiff',
       hide: !hasTodayDiffData,
       width: 60,
@@ -1814,10 +2234,17 @@ function mergeRowData(prev: any[], next: any[]): any[] {
   return Object.values(merged);
 }
 
-function applyTodayDiffToRows(rows: any[], todayDiffMap: Record<string, number>): any[] {
+function applyTodayDiffToRows(
+  rows: any[],
+  todayDiffMap: Record<string, number>,
+  todaySnapshotDateKey: string
+): any[] {
   if (!Array.isArray(rows) || rows.length === 0) return rows;
   const normalizedMap = todayDiffMap ?? {};
-  const prevDayKey = dayjs().tz('Asia/Tokyo').subtract(1, 'day').format('YYYYMMDD');
+  const snapshotBase = /^\d{8}$/.test(todaySnapshotDateKey)
+    ? `${todaySnapshotDateKey.slice(0, 4)}-${todaySnapshotDateKey.slice(4, 6)}-${todaySnapshotDateKey.slice(6, 8)}`
+    : dayjs().tz('Asia/Tokyo').format('YYYY-MM-DD');
+  const prevDayKey = dayjs(snapshotBase).subtract(1, 'day').format('YYYYMMDD');
 
   let total = 0;
   let hasTotal = false;
@@ -1850,20 +2277,33 @@ function applyTodayDiffToRows(rows: any[], todayDiffMap: Record<string, number>)
   });
 }
 
-function applyTodayDiffToGroupedRows(groupedRows: any[], numberRows: any[]): any[] {
+function applyTodayDiffToGroupedRows(groupedRows: any[], numberRows: any[], latestDate: string): any[] {
   if (!Array.isArray(groupedRows) || groupedRows.length === 0) return groupedRows;
   if (!Array.isArray(numberRows) || numberRows.length === 0) {
-    return groupedRows.map((row) => ({ ...row, todayDiff: '-' }));
+    return groupedRows.map((row) => ({ ...row, todayDiff: '-', machineNumbers: [] }));
   }
+
+  const hasLatestData = (row: any): boolean => {
+    if (!latestDate) return true;
+    const v = row?.[latestDate];
+    return !(v === undefined || v === null || v === '-');
+  };
 
   const sumByName: Record<string, number> = {};
   const countByName: Record<string, number> = {};
+  const machineNumbersByName: Record<string, string[]> = {};
   let totalSum = 0;
   let totalCount = 0;
 
   numberRows.forEach((row) => {
     if (!row || row.isTotalRow) return;
+    if (!hasLatestData(row)) return;
     const name = String(row.name ?? '');
+    const machineKey = String(row.machineNumber ?? '').trim();
+    if (name && machineKey) {
+      const list = machineNumbersByName[name] ?? (machineNumbersByName[name] = []);
+      if (!list.includes(machineKey)) list.push(machineKey);
+    }
     const diff = row.todayDiff;
     if (!name || typeof diff !== 'number') return;
     sumByName[name] = (sumByName[name] ?? 0) + diff;
@@ -1878,12 +2318,19 @@ function applyTodayDiffToGroupedRows(groupedRows: any[], numberRows: any[]): any
       return {
         ...row,
         todayDiff: totalCount > 0 ? Math.round(totalSum / totalCount) : '-',
+        machineNumbers: [],
       };
     }
     const name = String(row.name ?? row.modelName ?? '');
     const count = countByName[name] ?? 0;
-    if (count <= 0) return { ...row, todayDiff: '-' };
-    return { ...row, todayDiff: Math.round((sumByName[name] ?? 0) / count) };
+    const machineNumbers = [...(machineNumbersByName[name] ?? [])].sort((a, b) => {
+      const ai = Number(a);
+      const bi = Number(b);
+      if (Number.isFinite(ai) && Number.isFinite(bi)) return ai - bi;
+      return a.localeCompare(b, 'ja');
+    });
+    if (count <= 0) return { ...row, todayDiff: '-', machineNumbers };
+    return { ...row, todayDiff: Math.round((sumByName[name] ?? 0) / count), machineNumbers };
   });
 }
 
