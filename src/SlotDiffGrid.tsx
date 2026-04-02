@@ -870,6 +870,60 @@ const loadDates = async (dates: string[]) => {
 
   const tabValue = viewMode === 'number' ? 0 : viewMode === 'model' ? 1 : 2;
 
+  const todayGalleryStats = useMemo(() => {
+    const parseNumeric = (value: unknown): number | null => {
+      if (typeof value === 'number' && Number.isFinite(value)) return value;
+      if (typeof value !== 'string') return null;
+      const digits = value.replace(/[^0-9.-]/g, '');
+      if (!digits) return null;
+      const n = Number(digits);
+      return Number.isFinite(n) ? n : null;
+    };
+
+    const parseCombinedDenominator = (value: unknown): number | null => {
+      if (typeof value !== 'string') return null;
+      const m = value.match(/1\s*\/\s*(\d+)/);
+      if (!m) return null;
+      const n = Number(m[1]);
+      return Number.isFinite(n) ? n : null;
+    };
+
+    const rows = todayGalleryItems.map(({ machineKey, snapshot }) => ({
+      machineKey: String(machineKey),
+      machineNumber: String(snapshot?.machineNumber ?? machineKey),
+      totalGame: parseNumeric(snapshot?.totalGameCount),
+      bbCount: parseNumeric(snapshot?.bbCount),
+      rbCount: parseNumeric(snapshot?.rbCount),
+      combined: parseCombinedDenominator(snapshot?.combinedProbability),
+      artCount: parseNumeric(snapshot?.artCount),
+    }));
+
+    const avgOf = (arr: Array<number | null>) => {
+      const nums = arr.filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+      if (nums.length === 0) return null;
+      return Math.round(nums.reduce((sum, v) => sum + v, 0) / nums.length);
+    };
+
+    const avgTotalGame = avgOf(rows.map((r) => r.totalGame));
+    const avgBbCount = avgOf(rows.map((r) => r.bbCount));
+    const avgRbCount = avgOf(rows.map((r) => r.rbCount));
+    const avgCombined =
+      avgTotalGame != null && avgBbCount != null && avgRbCount != null && (avgBbCount + avgRbCount) > 0
+        ? Math.floor(avgTotalGame / (avgBbCount + avgRbCount))
+        : avgOf(rows.map((r) => r.combined));
+
+    const avgRow = {
+      machineNumber: '平均',
+      totalGame: avgTotalGame,
+      bbCount: avgBbCount,
+      rbCount: avgRbCount,
+      combined: avgCombined,
+      artCount: avgOf(rows.map((r) => r.artCount)),
+    };
+
+    return { rows, avgRow };
+  }, [todayGalleryItems]);
+
   // ===== CSVユーティリティ（api不使用）ここから =====
   const escapeCsv = (val: any): string => {
     if (val == null) return '';
@@ -1453,44 +1507,95 @@ const loadDates = async (dates: string[]) => {
         }}
       >
         {todayGalleryItems.length > 0 ? (
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-              gap: 8,
-            }}
-          >
-            {todayGalleryItems.map(({ machineKey, snapshot }) => (
-              <div
-                key={`gallery_${machineKey}`}
-                onClick={() => openTodayDetailFromGallery(machineKey)}
-                style={{
-                  border: '1px solid #ddd',
-                  borderRadius: 4,
-                  overflow: 'hidden',
-                  backgroundColor: '#f7f7f7',
-                  cursor: 'pointer',
-                }}
-              >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+                gap: 8,
+              }}
+            >
+              {todayGalleryItems.map(({ machineKey, snapshot }) => (
                 <div
+                  key={`gallery_${machineKey}`}
+                  onClick={() => openTodayDetailFromGallery(machineKey)}
                   style={{
-                    fontSize: '0.8em',
-                    fontWeight: 700,
-                    textAlign: 'center',
-                    padding: '4px 2px',
-                    borderBottom: '1px solid #e1e1e1',
-                    backgroundColor: '#fff',
+                    border: '1px solid #ddd',
+                    borderRadius: 4,
+                    overflow: 'hidden',
+                    backgroundColor: '#f7f7f7',
+                    cursor: 'pointer',
                   }}
                 >
-                  {snapshot?.machineNumber ?? machineKey}番台
+                  <div
+                    style={{
+                      fontSize: '0.8em',
+                      fontWeight: 700,
+                      textAlign: 'center',
+                      padding: '4px 2px',
+                      borderBottom: '1px solid #e1e1e1',
+                      backgroundColor: '#fff',
+                    }}
+                  >
+                    {snapshot?.machineNumber ?? machineKey}番台
+                  </div>
+                  <img
+                    src={buildTodayGraphUrl(snapshot)}
+                    alt={`${snapshot?.machineNumber ?? machineKey}番台の本日グラフ`}
+                    style={{ width: '100%', display: 'block' }}
+                  />
                 </div>
-                <img
-                  src={buildTodayGraphUrl(snapshot)}
-                  alt={`${snapshot?.machineNumber ?? machineKey}番台の本日グラフ`}
-                  style={{ width: '100%', display: 'block' }}
-                />
-              </div>
-            ))}
+              ))}
+            </div>
+
+            <div style={{ border: '1px solid #cfcfcf', overflow: 'hidden', backgroundColor: '#f0f0f0' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8em' }}>
+                <thead>
+                  <tr style={{ backgroundColor: '#e9e9e9' }}>
+                    <th style={{ border: '1px solid #c8c8c8', padding: '4px 2px' }}>台番</th>
+                    <th style={{ border: '1px solid #c8c8c8', padding: '4px 2px' }}>累計ゲーム</th>
+                    <th style={{ border: '1px solid #c8c8c8', padding: '4px 2px' }}>BB回数</th>
+                    <th style={{ border: '1px solid #c8c8c8', padding: '4px 2px' }}>RB回数</th>
+                    <th style={{ border: '1px solid #c8c8c8', padding: '4px 2px' }}>合成確率</th>
+                    <th style={{ border: '1px solid #c8c8c8', padding: '4px 2px' }}>ART回数</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {todayGalleryStats.rows.map((r) => (
+                    <tr key={`gallery_stats_${r.machineKey}`} style={{ backgroundColor: '#f2f2f2' }}>
+                      <td
+                        onClick={() => openTodayDetailFromGallery(r.machineKey)}
+                        style={{
+                          border: '1px solid #c8c8c8',
+                          padding: '3px 2px',
+                          textAlign: 'center',
+                          color: '#2f69a8',
+                          textDecoration: 'underline',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {r.machineNumber}
+                      </td>
+                      <td style={{ border: '1px solid #c8c8c8', padding: '3px 2px', textAlign: 'center' }}>{r.totalGame ?? '--'}</td>
+                      <td style={{ border: '1px solid #c8c8c8', padding: '3px 2px', textAlign: 'center' }}>{r.bbCount ?? '--'}</td>
+                      <td style={{ border: '1px solid #c8c8c8', padding: '3px 2px', textAlign: 'center' }}>{r.rbCount ?? '--'}</td>
+                      <td style={{ border: '1px solid #c8c8c8', padding: '3px 2px', textAlign: 'center' }}>{r.combined ?? '--'}</td>
+                      <td style={{ border: '1px solid #c8c8c8', padding: '3px 2px', textAlign: 'center' }}>{r.artCount ?? '--'}</td>
+                    </tr>
+                  ))}
+                  <tr style={{ backgroundColor: '#c9efc8' }}>
+                    <td style={{ border: '1px solid #b8dcb7', padding: '4px 2px', textAlign: 'center', fontWeight: 700 }}>
+                      {todayGalleryStats.avgRow.machineNumber}
+                    </td>
+                    <td style={{ border: '1px solid #b8dcb7', padding: '4px 2px', textAlign: 'center' }}>{todayGalleryStats.avgRow.totalGame ?? '--'}</td>
+                    <td style={{ border: '1px solid #b8dcb7', padding: '4px 2px', textAlign: 'center' }}>{todayGalleryStats.avgRow.bbCount ?? '--'}</td>
+                    <td style={{ border: '1px solid #b8dcb7', padding: '4px 2px', textAlign: 'center' }}>{todayGalleryStats.avgRow.rbCount ?? '--'}</td>
+                    <td style={{ border: '1px solid #b8dcb7', padding: '4px 2px', textAlign: 'center' }}>{todayGalleryStats.avgRow.combined ?? '--'}</td>
+                    <td style={{ border: '1px solid #b8dcb7', padding: '4px 2px', textAlign: 'center' }}>{todayGalleryStats.avgRow.artCount ?? '--'}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         ) : (
           <div style={{ textAlign: 'center', color: '#888', padding: '12px 0' }}>
@@ -1809,6 +1914,28 @@ function buildNumberColumns(
         }
         return v;
       },
+      comparator: (valueA: any, valueB: any, _nodeA: any, _nodeB: any, isDescending?: boolean) => {
+        const toNumber = (v: any): number | null => {
+          if (typeof v === 'number' && Number.isFinite(v)) return v;
+          if (typeof v === 'string') {
+            const normalized = v.replace(/,/g, '').trim();
+            if (!normalized || normalized === '-') return null;
+            const n = Number(normalized);
+            return Number.isFinite(n) ? n : null;
+          }
+          return null;
+        };
+
+        const a = toNumber(valueA);
+        const b = toNumber(valueB);
+        const aMissing = a === null;
+        const bMissing = b === null;
+
+        if (aMissing && bMissing) return 0;
+        if (aMissing && !bMissing) return isDescending ? -1 : 1;
+        if (!aMissing && bMissing) return isDescending ? 1 : -1;
+        return (a as number) - (b as number);
+      },
       cellStyle: (p) => {
         const v = p?.value;
         const base: any = {
@@ -1963,6 +2090,28 @@ function buildGroupedColumnsForDates(
           return normalized.toLocaleString();
         }
         return v;
+      },
+      comparator: (valueA: any, valueB: any, _nodeA: any, _nodeB: any, isDescending?: boolean) => {
+        const toNumber = (v: any): number | null => {
+          if (typeof v === 'number' && Number.isFinite(v)) return v;
+          if (typeof v === 'string') {
+            const normalized = v.replace(/,/g, '').trim();
+            if (!normalized || normalized === '-') return null;
+            const n = Number(normalized);
+            return Number.isFinite(n) ? n : null;
+          }
+          return null;
+        };
+
+        const a = toNumber(valueA);
+        const b = toNumber(valueB);
+        const aMissing = a === null;
+        const bMissing = b === null;
+
+        if (aMissing && bMissing) return 0;
+        if (aMissing && !bMissing) return isDescending ? -1 : 1;
+        if (!aMissing && bMissing) return isDescending ? 1 : -1;
+        return (a as number) - (b as number);
       },
       cellStyle: (p: any) => {
         const v = p?.value;

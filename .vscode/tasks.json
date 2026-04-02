@@ -1,0 +1,43 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start Chrome Remote Debug (9222)",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\.vscode\\start-browser-debug.ps1",
+        "-Browser",
+        "chrome",
+        "-Port",
+        "9222",
+        "-Url",
+        "http://localhost:3000"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Start Edge Remote Debug (9223)",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\.vscode\\start-browser-debug.ps1",
+        "-Browser",
+        "edge",
+        "-Port",
+        "9223",
+        "-Url",
+        "http://localhost:3000"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}

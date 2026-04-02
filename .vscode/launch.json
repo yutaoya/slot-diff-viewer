@@ -1,15 +1,72 @@
 {
-    "version": "0.2.0",
-    "configurations": [
-      {
-        "type": "chrome",
-        "request": "launch",
-        "name": "React App (Chrome)",
-        "url": "http://localhost:3000",
-        "webRoot": "${workspaceFolder}/src",
-        "sourceMaps": true,
-        "runtimeArgs": ["--remote-debugging-port=9222"]
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "React: Start Dev Server (Chrome)",
+      "type": "pwa-node",
+      "request": "launch",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "start"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "env": {
+        "BROWSER": "none"
+      },
+      "serverReadyAction": {
+        "action": "startDebugging",
+        "name": "Chrome: Attach 9222",
+        "pattern": "Local:\\s+(https?://\\S+)",
+        "uriFormat": "%s"
       }
-    ]
-  }
-  
+    },
+    {
+      "name": "React: Start Dev Server (Edge)",
+      "type": "pwa-node",
+      "request": "launch",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "start"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "env": {
+        "BROWSER": "none"
+      },
+      "serverReadyAction": {
+        "action": "startDebugging",
+        "name": "Edge: Attach 9223",
+        "pattern": "Local:\\s+(https?://\\S+)",
+        "uriFormat": "%s"
+      }
+    },
+    {
+      "name": "Chrome: Attach 9222",
+      "type": "pwa-chrome",
+      "request": "attach",
+      "port": 9222,
+      "webRoot": "${workspaceFolder}/src",
+      "preLaunchTask": "Start Chrome Remote Debug (9222)",
+      "timeout": 30000
+    },
+    {
+      "name": "Edge: Attach 9223",
+      "type": "pwa-msedge",
+      "request": "attach",
+      "port": 9223,
+      "webRoot": "${workspaceFolder}/src",
+      "preLaunchTask": "Start Edge Remote Debug (9223)",
+      "timeout": 30000
+    }
+  ],
+  "compounds": [
+    {
+      "name": "React + Chrome",
+      "configurations": ["React: Start Dev Server (Chrome)"]
+    },
+    {
+      "name": "React + Edge",
+      "configurations": ["React: Start Dev Server (Edge)"],
+      "stopAll": true
+    }
+  ]
+}
