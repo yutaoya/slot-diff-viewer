@@ -1349,11 +1349,41 @@ const loadDates = async (dates: string[]) => {
 
       <Button
         variant="contained"
-        color="primary"
         onClick={handleExportXlsx}
-        style={{  padding: "3px 12px", marginLeft: 10 }}
+        aria-label="Excel出力"
+        sx={{
+          marginLeft: 1.25,
+          minWidth: 0,
+          height: 30,
+          width: 34,
+          padding: 0,
+          borderRadius: 1,
+          textTransform: 'none',
+          backgroundColor: '#1D6F42',
+          color: '#fff',
+          '&:hover': {
+            backgroundColor: '#155A33',
+          },
+        }}
       >
-        Excel出力
+        <span
+          style={{
+            display: 'inline-flex',
+            width: 14,
+            height: 14,
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderRadius: 2,
+            backgroundColor: '#0F4C2E',
+            border: '1px solid rgba(255,255,255,0.42)',
+            fontSize: 10,
+            fontWeight: 800,
+            lineHeight: 1,
+            color: '#fff',
+          }}
+        >
+          X
+        </span>
       </Button>
       </div>
       </div>
@@ -2582,7 +2612,7 @@ function mergeRowData(prev: any[], next: any[]): any[] {
     } else {
       const mergedRow = merged[row.id];
       for (const key of Object.keys(row)) {
-        if (key !== 'flag' && key !== 'urls') {
+        if (key !== 'flag' && key !== 'urls' && key !== 'comments') {
           mergedRow[key] = row[key];
         }
       }
@@ -2593,6 +2623,10 @@ function mergeRowData(prev: any[], next: any[]): any[] {
       mergedRow.urls = {
         ...row.urls,
         ...mergedRow.urls, // 既存のユーザー更新を優先
+      };
+      mergedRow.comments = {
+        ...row.comments,
+        ...mergedRow.comments, // 既存のユーザー更新を優先
       };
     }
   }
