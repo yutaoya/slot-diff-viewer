@@ -21,7 +21,7 @@ import { fetchSlotDiffs } from './dataFetcher';
 import { transformToGridData, transformToGroupedGridData, transformToTailGridData } from './dataTransformer';
 
 // UI
-import { Modal, Radio } from 'antd';
+import { Input, Modal, Radio } from 'antd';
 import { doc, updateDoc, getDoc, getFirestore, FieldPath, writeBatch, collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from './firebase';
 import { FormControl, MenuItem, Select } from '@mui/material';
@@ -101,6 +101,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedCell, setSelectedCell] = useState<{ rowData: any; field: string; value: any } | null>(null);
   const [selectedFlag, setSelectedFlag] = useState<number | null>(null);
+  const [selectedComment, setSelectedComment] = useState('');
   const [selectedCellUrl, setselectedCellUrl] = useState<string | null>(null);
   const [selectedRowId, setSelectedRowId] = useState<string | number | null>(null);
   const [todayDetailModalOpen, setTodayDetailModalOpen] = useState(false);
@@ -432,8 +433,35 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
       const originalUrl = selectedCell?.rowData?.urls?.[selectedCell.field] ?? "";
       setselectedCellUrl(originalUrl);
 
+      let initialComment = selectedCell?.rowData?.comments?.[selectedCell.field] ?? '';
+      if (viewMode === 'model') {
+        const dateField = selectedCell.field;
+        const targetCanonicalName = resolveDisplayName(
+          String(selectedCell?.rowData?.name ?? selectedCell?.rowData?.modelName ?? '')
+        );
+        const merged = Array.from(
+          new Set(
+            (numberRowDataRef.current ?? [])
+              .filter((row: any) => !row?.isTotalRow)
+              .filter(
+                (row: any) =>
+                  resolveDisplayName(String(row?.name ?? row?.modelName ?? '')) === targetCanonicalName
+              )
+              .map((row: any) => {
+                const v = row?.comments?.[dateField];
+                return typeof v === 'string' ? v.trim() : String(v ?? '').trim();
+              })
+              .filter((v: string) => !!v)
+          )
+        );
+        if (merged.length > 0) {
+          initialComment = merged.join('\n');
+        }
+      }
+      setSelectedComment(typeof initialComment === 'string' ? initialComment : String(initialComment ?? ''));
+
     }
-  }, [modalOpen, selectedCell]);
+  }, [modalOpen, selectedCell, viewMode, resolveDisplayName]);
 
   useEffect(() => {
     rowDataRef.current = rowData;        // ★ 常に最新の rowData を保持
@@ -1689,9 +1717,13 @@ const loadDates = async (dates: string[]) => {
       {/* モーダル（台番別のみ） */}
       <Modal
         open={modalOpen}
-        onCancel={() => setModalOpen(false)}
+        onCancel={() => {
+          setModalOpen(false);
+          setSelectedComment('');
+        }}
         onOk={async () => {
           if (!selectedCell || selectedFlag === null) return;
+          const scrollTopBeforeUpdate = getCurrentVerticalScrollTop();
 
           const dateField = selectedCell.field; // YYYYMMDD
           const db = getFirestore();
@@ -1705,30 +1737,62 @@ const loadDates = async (dates: string[]) => {
           const targetNumber = String(selectedCell.rowData.machineNumber ?? '');
 
           const originalFlag = selectedCell?.rowData?.flag?.[dateField] ?? 0;
+          const commentValue = selectedComment ?? '';
 
           // 台番別と機種別で分岐
           if (viewMode === 'model') {
-            // ★ 機種別：同一機種名の全台を selectedFlag（9 or 0）で一括更新
-            if (![9, 0].includes(selectedFlag)) return;
+            // ★ 機種別：コメントは常に全台へ反映。flag は 9/0 のときのみ一括更新
+            const shouldUpdateFlag = [9, 0].includes(selectedFlag);
 
-            const ops: Array<{ path: FieldPath; value: any }> = [];
+            const targetKeys: string[] = [];
             Object.entries(data).forEach(([key, val]: [string, any]) => {
               const canonical = resolveDisplayName(String(val?.name ?? ''));
               if (canonical === targetCanonicalName) {
-                ops.push({ path: new FieldPath('data', key, 'flag'), value: selectedFlag });
+                targetKeys.push(key);
               }
             });
 
-            if (ops.length === 0) {
+            if (targetKeys.length === 0) {
               setModalOpen(false);
               return;
             }
 
-            if (ops.length === 1) {
-              await updateDoc(ref, ops[0].path, ops[0].value);
+            if (targetKeys.length === 1) {
+              const key = targetKeys[0];
+              if (shouldUpdateFlag) {
+                await updateDoc(
+                  ref,
+                  new FieldPath('data', key, 'flag'),
+                  selectedFlag,
+                  new FieldPath('data', key, 'comment'),
+                  commentValue
+                );
+              } else {
+                await updateDoc(
+                  ref,
+                  new FieldPath('data', key, 'comment'),
+                  commentValue
+                );
+              }
             } else {
               const batch = writeBatch(db);
-              ops.forEach(op => batch.update(ref, op.path, op.value));
+              targetKeys.forEach((key) => {
+                if (shouldUpdateFlag) {
+                  batch.update(
+                    ref,
+                    new FieldPath('data', key, 'flag'),
+                    selectedFlag,
+                    new FieldPath('data', key, 'comment'),
+                    commentValue
+                  );
+                } else {
+                  batch.update(
+                    ref,
+                    new FieldPath('data', key, 'comment'),
+                    commentValue
+                  );
+                }
+              });
               await batch.commit();
             }
 
@@ -1736,40 +1800,53 @@ const loadDates = async (dates: string[]) => {
             numberRowDataRef.current.forEach((row: any) => {
               const canonical = resolveDisplayName(String(row?.name ?? row?.modelName ?? ''));
               if (canonical !== targetCanonicalName) return;
-              if (!row.flag) row.flag = {};
-              row.flag[dateField] = selectedFlag;
+              if (!row.comments) row.comments = {};
+              if (shouldUpdateFlag) {
+                if (!row.flag) row.flag = {};
+                row.flag[dateField] = selectedFlag;
+              }
+              row.comments[dateField] = commentValue;
             });
             rowDataRef.current.forEach((row: any) => {
               const canonical = resolveDisplayName(String(row?.name ?? row?.modelName ?? ''));
               if (canonical !== targetCanonicalName) return;
-              if (!row.flag) row.flag = {};
-              row.flag[dateField] = selectedFlag;
+              if (!row.comments) row.comments = {};
+              if (shouldUpdateFlag) {
+                if (!row.flag) row.flag = {};
+                row.flag[dateField] = selectedFlag;
+              }
+              row.comments[dateField] = commentValue;
             });
-            pendingScrollRestoreRef.current = getCurrentVerticalScrollTop();
+            pendingScrollRestoreRef.current = scrollTopBeforeUpdate;
             setRowData(prev =>
               prev.map((r: any) => {
                 const nm = resolveDisplayName(String(r?.name ?? r?.modelName ?? ''));
                 if (nm !== targetCanonicalName) return r;
-                const next = { ...r, flag: { ...(r.flag ?? {}) } };
-                next.flag[dateField] = selectedFlag;
+                const next = { ...r, comments: { ...(r.comments ?? {}) } } as any;
+                if (shouldUpdateFlag) {
+                  next.flag = { ...(r.flag ?? {}) };
+                  next.flag[dateField] = selectedFlag;
+                }
+                next.comments[dateField] = commentValue;
                 return next;
               })
             );
 
             setModalOpen(false);
+            setSelectedComment('');
             gridRef.current?.api?.refreshCells({ force: true });
             return;
           }
 
           // ★ ここから先は従来の「台番別」ロジック（既存と同等）
-          const ops: Array<{ path: FieldPath; value: any }> = [];
+          const targetKeys: string[] = [];
 
           // 1) 全台系 → フラグ解除（同機種すべて 0）
           if (originalFlag === 9 && selectedFlag === 0) {
             Object.entries(data).forEach(([key, val]: [string, any]) => {
               const canonical = resolveDisplayName(String(val?.name ?? ''));
               if (canonical === targetCanonicalName) {
-                ops.push({ path: new FieldPath('data', key, 'flag'), value: 0 });
+                targetKeys.push(key);
               }
             });
           }
@@ -1778,7 +1855,7 @@ const loadDates = async (dates: string[]) => {
             Object.entries(data).forEach(([key, val]: [string, any]) => {
               const canonical = resolveDisplayName(String(val?.name ?? ''));
               if (canonical === targetCanonicalName) {
-                ops.push({ path: new FieldPath('data', key, 'flag'), value: 9 });
+                targetKeys.push(key);
               }
             });
           }
@@ -1787,49 +1864,83 @@ const loadDates = async (dates: string[]) => {
             Object.entries(data).forEach(([key, val]: [string, any]) => {
               const canonical = resolveDisplayName(String(val?.name ?? ''));
               if (canonical === targetCanonicalName && String(val?.machineNumber ?? '') === targetNumber) {
-                ops.push({ path: new FieldPath('data', key, 'flag'), value: selectedFlag });
+                targetKeys.push(key);
               }
             });
           }
 
-          if (ops.length >= 1) {
+          if (targetKeys.length >= 1) {
             const batch = writeBatch(db);
-            ops.forEach(op => batch.update(ref, op.path, op.value));
+            targetKeys.forEach((key) => {
+              batch.update(
+                ref,
+                new FieldPath('data', key, 'flag'),
+                selectedFlag,
+                new FieldPath('data', key, 'comment'),
+                commentValue
+              );
+            });
             await batch.commit();
           }
 
           setModalOpen(false);
+          setSelectedComment('');
 
           // 画面側へ反映
           const api = gridRef.current?.api;
           if (!api) return;
           const field = dateField;
+          pendingScrollRestoreRef.current = scrollTopBeforeUpdate;
 
           rowDataRef.current.forEach((row: any) => {
             if (!row.flag) row.flag = {};
+            if (!row.comments) row.comments = {};
             const canonical = resolveDisplayName(String(row?.name ?? row?.modelName ?? ''));
             const rowNumber = String(row?.machineNumber ?? '');
             if (originalFlag === 9 && selectedFlag === 0 && canonical === targetCanonicalName) {
               row.flag[field] = 0;
+              row.comments[field] = commentValue;
             } else if (selectedFlag === 9 && canonical === targetCanonicalName) {
               row.flag[field] = 9;
+              row.comments[field] = commentValue;
             } else if (canonical === targetCanonicalName && rowNumber === targetNumber) {
               row.flag[field] = selectedFlag;
+              row.comments[field] = commentValue;
             }
           });
 
           numberRowDataRef.current.forEach((row: any) => {
             if (!row.flag) row.flag = {};
+            if (!row.comments) row.comments = {};
             const canonical = resolveDisplayName(String(row?.name ?? row?.modelName ?? ''));
             const rowNumber = String(row?.machineNumber ?? '');
             if (originalFlag === 9 && selectedFlag === 0 && canonical === targetCanonicalName) {
               row.flag[field] = 0;
+              row.comments[field] = commentValue;
             } else if (selectedFlag === 9 && canonical === targetCanonicalName) {
               row.flag[field] = 9;
+              row.comments[field] = commentValue;
             } else if (canonical === targetCanonicalName && rowNumber === targetNumber) {
               row.flag[field] = selectedFlag;
+              row.comments[field] = commentValue;
             }
           });
+
+          setRowData((prev) =>
+            prev.map((row: any) => {
+              const canonical = resolveDisplayName(String(row?.name ?? row?.modelName ?? ''));
+              const rowNumber = String(row?.machineNumber ?? '');
+              const shouldUpdate =
+                (originalFlag === 9 && selectedFlag === 0 && canonical === targetCanonicalName) ||
+                (selectedFlag === 9 && canonical === targetCanonicalName) ||
+                (canonical === targetCanonicalName && rowNumber === targetNumber);
+              if (!shouldUpdate) return row;
+              const next = { ...row, flag: { ...(row.flag ?? {}) }, comments: { ...(row.comments ?? {}) } };
+              next.flag[field] = selectedFlag;
+              next.comments[field] = commentValue;
+              return next;
+            })
+          );
 
           api.refreshCells({ force: true });
         }}
@@ -1861,6 +1972,15 @@ const loadDates = async (dates: string[]) => {
           <Radio value={4} disabled={viewMode === 'model'}>設定456</Radio>
           <Radio value={0} disabled={false}>フラグ解除</Radio>
         </Radio.Group>
+
+        <div style={{ marginTop: 10 }}>
+          <Input.TextArea
+            value={selectedComment}
+            onChange={(e) => setSelectedComment(e.target.value)}
+            placeholder="コメントを入力"
+            autoSize={{ minRows: 2, maxRows: 4 }}
+          />
+        </div>
       </Modal>
       <Modal
         title="台データ"

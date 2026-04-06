@@ -20,11 +20,13 @@ export function transformToGridData(latest: any, allData: Record<string, any>) {
 
       if (!rowMap[rowId].flag) rowMap[rowId].flag = {};
       if (!rowMap[rowId].urls) rowMap[rowId].urls = {};
+      if (!rowMap[rowId].comments) rowMap[rowId].comments = {};
 
       // 日付ごとの差枚データ
       rowMap[rowId][date] = item.diff ?? '-';
       rowMap[rowId].flag[date] = item.flag ?? undefined;
       rowMap[rowId].urls[date] = item.url ?? undefined;
+      rowMap[rowId].comments[date] = typeof item.comment === 'string' ? item.comment : '';
 
     }
   }
