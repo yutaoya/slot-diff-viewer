@@ -1250,6 +1250,7 @@ const loadDates = async (dates: string[]) => {
             headerHeight={20}
             defaultColDef={{
               resizable: false,
+              sortingOrder: ['desc', 'asc', null],
               cellStyle: {
                 fontSize: '0.8em',
                 padding: 0,
@@ -1899,6 +1900,35 @@ const loadDates = async (dates: string[]) => {
 
 // ================== 台番別（columns） ==================
 // シグネチャ変更：latestDate を追加
+function compareNumericCellValues(
+  valueA: any,
+  valueB: any,
+  _nodeA: any,
+  _nodeB: any,
+  isDescending?: boolean
+) {
+  const toNumber = (v: any): number | null => {
+    if (typeof v === 'number' && Number.isFinite(v)) return v;
+    if (typeof v === 'string') {
+      const normalized = v.replace(/,/g, '').trim();
+      if (!normalized || normalized === '-') return null;
+      const n = Number(normalized);
+      return Number.isFinite(n) ? n : null;
+    }
+    return null;
+  };
+
+  const a = toNumber(valueA);
+  const b = toNumber(valueB);
+  const aMissing = a === null;
+  const bMissing = b === null;
+
+  if (aMissing && bMissing) return 0;
+  if (aMissing && !bMissing) return isDescending ? -1 : 1;
+  if (!aMissing && bMissing) return isDescending ? 1 : -1;
+  return (a as number) - (b as number);
+}
+
 function buildNumberColumns(
   dates: string[],
   existing: ColDef[],
@@ -2006,28 +2036,7 @@ function buildNumberColumns(
         }
         return v;
       },
-      comparator: (valueA: any, valueB: any, _nodeA: any, _nodeB: any, isDescending?: boolean) => {
-        const toNumber = (v: any): number | null => {
-          if (typeof v === 'number' && Number.isFinite(v)) return v;
-          if (typeof v === 'string') {
-            const normalized = v.replace(/,/g, '').trim();
-            if (!normalized || normalized === '-') return null;
-            const n = Number(normalized);
-            return Number.isFinite(n) ? n : null;
-          }
-          return null;
-        };
-
-        const a = toNumber(valueA);
-        const b = toNumber(valueB);
-        const aMissing = a === null;
-        const bMissing = b === null;
-
-        if (aMissing && bMissing) return 0;
-        if (aMissing && !bMissing) return isDescending ? -1 : 1;
-        if (!aMissing && bMissing) return isDescending ? 1 : -1;
-        return (a as number) - (b as number);
-      },
+      comparator: compareNumericCellValues,
       cellStyle: (p) => {
         const v = p?.value;
         const base: any = {
@@ -2061,6 +2070,7 @@ function buildNumberColumns(
       width: 60,
       cellRenderer: 'customCellRenderer',
       cellRendererParams: { showModal },
+      comparator: compareNumericCellValues,
       cellStyle: (params) => {
         const v = params.value;
         const row = params.data;
@@ -2171,28 +2181,7 @@ function buildGroupedColumnsForDates(
         }
         return v;
       },
-      comparator: (valueA: any, valueB: any, _nodeA: any, _nodeB: any, isDescending?: boolean) => {
-        const toNumber = (v: any): number | null => {
-          if (typeof v === 'number' && Number.isFinite(v)) return v;
-          if (typeof v === 'string') {
-            const normalized = v.replace(/,/g, '').trim();
-            if (!normalized || normalized === '-') return null;
-            const n = Number(normalized);
-            return Number.isFinite(n) ? n : null;
-          }
-          return null;
-        };
-
-        const a = toNumber(valueA);
-        const b = toNumber(valueB);
-        const aMissing = a === null;
-        const bMissing = b === null;
-
-        if (aMissing && bMissing) return 0;
-        if (aMissing && !bMissing) return isDescending ? -1 : 1;
-        if (!aMissing && bMissing) return isDescending ? 1 : -1;
-        return (a as number) - (b as number);
-      },
+      comparator: compareNumericCellValues,
       cellStyle: (p: any) => {
         const v = p?.value;
         const base: any = {
@@ -2229,6 +2218,7 @@ function buildGroupedColumnsForDates(
     cellRenderer: 'groupedCellRenderer',
     // ★ 機種別でもダブルタップでモーダル起動
     cellRendererParams: { showModal },
+    comparator: compareNumericCellValues,
     cellStyle: (params) => {
       const v = params.value;
       const row = params.data;
@@ -2296,6 +2286,31 @@ function buildTailColumnsForDates(
     return parsed ? parsed.avg : null;
   };
 
+  const compareTailByWinRate = (
+    valueA: any,
+    valueB: any,
+    _nodeA: any,
+    _nodeB: any,
+    isDescending?: boolean
+  ) => {
+    const a = parseTailCell(valueA);
+    const b = parseTailCell(valueB);
+    const aMissing = !a;
+    const bMissing = !b;
+
+    if (aMissing && bMissing) return 0;
+    if (aMissing && !bMissing) return isDescending ? -1 : 1;
+    if (!aMissing && bMissing) return isDescending ? 1 : -1;
+
+    const winRateDiff = (a!.winRate - b!.winRate);
+    if (winRateDiff !== 0) return winRateDiff;
+
+    const avgDiff = (a!.avg - b!.avg);
+    if (avgDiff !== 0) return avgDiff;
+
+    return 0;
+  };
+
   const getHeatmapColor = (winRate: number): string | undefined => {
     // 勝率40%以下は無色、40%超を薄い赤〜濃い赤にマップ
     if (winRate <= 0.4) return undefined;
@@ -2316,6 +2331,7 @@ function buildTailColumnsForDates(
     headerName: formatDate(date),
     field: date,
     width: 60,
+    comparator: compareTailByWinRate,
     cellRenderer: (params: any) => {
       const parsed = parseTailCell(params.value);
       if (!parsed) return params.value;
@@ -2383,6 +2399,7 @@ function buildTailColumnsForDates(
       field: 'todayDiff',
       hide: !hasTodayDiffData,
       width: 60,
+      comparator: compareTailByWinRate,
       cellRenderer: (params: any) => {
         const parsed = parseTailCell(params.value);
         if (!parsed) return params.value;
