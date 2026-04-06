@@ -129,12 +129,14 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const rawMapRef = useRef<Record<string, any>>({});
   const tooltipColorMapRef = useRef<Record<string, string>>({});
   const tooltipTextMapRef = useRef<Record<string, string>>({});
+  const nameCombineMapRef = useRef<Record<string, string>>({});
   const todaySnapshotMapRef = useRef<Record<string, TodaySnapshotItem>>({});
   const [todayDiffMap, setTodayDiffMap] = useState<Record<string, number>>({});
   const [todaySnapshotDateKey, setTodaySnapshotDateKey] = useState('');
   const todaySnapshotDocIdRef = useRef('');
   const [todayColumnHeader, setTodayColumnHeader] = useState('本日');
   const [hasTodayDiffData, setHasTodayDiffData] = useState(false);
+  const [nameMapReady, setNameMapReady] = useState(false);
 
   const rowDataRef = useRef<any[]>([]);  // ★ 追加
   const pendingScrollRestoreRef = useRef<number | null>(null);
@@ -143,6 +145,31 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const [machineUrl, setMachineUrl] = useState<string | null>(null);
   const [machineTooltip, setMachineTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
   const machineTooltipRef = useRef<HTMLDivElement | null>(null);
+
+  const resolveDisplayName = useCallback((name: string) => {
+    const raw = String(name ?? '').trim();
+    if (!raw) return '';
+    return nameCombineMapRef.current[raw] ?? raw;
+  }, []);
+
+  const normalizeMachineName = useCallback((item: any) => {
+    if (!item || typeof item !== 'object') return item;
+    const normalizedName = resolveDisplayName(String(item?.name ?? ''));
+    if (!normalizedName || normalizedName === item?.name) return item;
+    return { ...item, name: normalizedName };
+  }, [resolveDisplayName]);
+
+  const normalizeDateDataNames = useCallback((dateData: any) => {
+    if (!dateData || typeof dateData !== 'object') return dateData;
+    if (Array.isArray(dateData)) {
+      return dateData.map((item) => normalizeMachineName(item));
+    }
+    const next: Record<string, any> = {};
+    Object.entries(dateData).forEach(([key, item]) => {
+      next[key] = normalizeMachineName(item);
+    });
+    return next;
+  }, [normalizeMachineName]);
 
   const scheduleRestoreVerticalScroll = useCallback((top: number) => {
     if (!top) return;
@@ -169,10 +196,11 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   }, []);
 
   useEffect(() => {
+    if (!nameMapReady) return;
     if (didInitRef.current) return;
     didInitRef.current = true;
     loadInitialData();
-  }, []);
+  }, [nameMapReady]);
 
   useEffect(() => {
     rowDataMirrorRef.current = rowData;
@@ -242,6 +270,53 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
       cancelled = true;
     };
   }, [storeId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadNameCombineMap = async () => {
+      try {
+        const snap = await getDoc(doc(db, 'config', 'namecCmbine'));
+        if (!snap.exists()) return;
+        const payload = snap.data() as any;
+        const source =
+          payload?.map && typeof payload.map === 'object' && !Array.isArray(payload.map)
+            ? payload.map
+            : {};
+
+        const next: Record<string, string> = {};
+        Object.entries(source as Record<string, unknown>).forEach(([canonicalName, aliases]) => {
+          const canonical = String(canonicalName ?? '').trim();
+          if (!canonical) return;
+          next[canonical] = canonical;
+          if (Array.isArray(aliases)) {
+            aliases.forEach((alias) => {
+              const key = String(alias ?? '').trim();
+              if (key) next[key] = canonical;
+            });
+            return;
+          }
+          if (typeof aliases === 'string') {
+            const key = aliases.trim();
+            if (key) next[key] = canonical;
+          }
+        });
+
+        if (cancelled) return;
+        nameCombineMapRef.current = next;
+        gridRef.current?.api?.refreshCells({ force: true });
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error('Failed to load config/namecCmbine.map:', error);
+      } finally {
+        if (!cancelled) setNameMapReady(true);
+      }
+    };
+
+    void loadNameCombineMap();
+    return () => {
+      cancelled = true;
+    };
+  }, [resolveDisplayName]);
 
   useEffect(() => {
     let cancelled = false;
@@ -643,7 +718,11 @@ const loadDates = async (dates: string[]) => {
     api?.getVerticalPixelRange?.()?.top ??
     (document.querySelector('.ag-body-viewport') as HTMLElement | null)?.scrollTop ??
     0;
-  const raw = await fetchSlotDiffs(storeId, dates);
+  const fetchedRaw = await fetchSlotDiffs(storeId, dates);
+  const raw: Record<string, any> = {};
+  Object.entries(fetchedRaw ?? {}).forEach(([dateKey, dateData]) => {
+    raw[dateKey] = normalizeDateDataNames(dateData);
+  });
 
   // 生データを累積（機種別で使う）
   Object.entries(raw).forEach(([k, v]) => {
@@ -685,6 +764,7 @@ const loadDates = async (dates: string[]) => {
     effectiveLatestDate || '',
     todayColumnHeader,
     hasTodayDiffData,
+    resolveDisplayName,
     getTooltipColor,
     getTooltipText
   );
@@ -816,7 +896,8 @@ const loadDates = async (dates: string[]) => {
       showModal,
       effectiveLatestDate || '',
       todayColumnHeader,
-      hasTodayDiffData
+      hasTodayDiffData,
+      resolveDisplayName
     );
     setColumnDefs(groupedCols);
   };
@@ -1618,10 +1699,10 @@ const loadDates = async (dates: string[]) => {
           if (!snap.exists()) return;
 
           const data = snap.data().data;
-          const targetName = selectedCell.rowData.name ?? selectedCell.rowData.modelName ?? '';
-          const targetNumber = selectedCell.rowData.machineNumber ?? '';
+          const targetName = String(selectedCell.rowData.name ?? selectedCell.rowData.modelName ?? '');
+          const targetCanonicalName = resolveDisplayName(targetName);
+          const targetNumber = String(selectedCell.rowData.machineNumber ?? '');
 
-          const dataKey    = selectedCell.rowData.dataKey;
           const originalFlag = selectedCell?.rowData?.flag?.[dateField] ?? 0;
 
           // 台番別と機種別で分岐
@@ -1631,7 +1712,8 @@ const loadDates = async (dates: string[]) => {
 
             const ops: Array<{ path: FieldPath; value: any }> = [];
             Object.entries(data).forEach(([key, val]: [string, any]) => {
-              if (val.name === targetName) {
+              const canonical = resolveDisplayName(String(val?.name ?? ''));
+              if (canonical === targetCanonicalName) {
                 ops.push({ path: new FieldPath('data', key, 'flag'), value: selectedFlag });
               }
             });
@@ -1651,20 +1733,22 @@ const loadDates = async (dates: string[]) => {
 
             // ローカル反映（台番別の元データ／現在表示データ／機種別行）
             numberRowDataRef.current.forEach((row: any) => {
-              if (row?.name !== targetName) return;
+              const canonical = resolveDisplayName(String(row?.name ?? row?.modelName ?? ''));
+              if (canonical !== targetCanonicalName) return;
               if (!row.flag) row.flag = {};
               row.flag[dateField] = selectedFlag;
             });
             rowDataRef.current.forEach((row: any) => {
-              if (row?.name !== targetName) return;
+              const canonical = resolveDisplayName(String(row?.name ?? row?.modelName ?? ''));
+              if (canonical !== targetCanonicalName) return;
               if (!row.flag) row.flag = {};
               row.flag[dateField] = selectedFlag;
             });
             pendingScrollRestoreRef.current = getCurrentVerticalScrollTop();
             setRowData(prev =>
               prev.map((r: any) => {
-                const nm = r.name ?? r.modelName;
-                if (nm !== targetName) return r;
+                const nm = resolveDisplayName(String(r?.name ?? r?.modelName ?? ''));
+                if (nm !== targetCanonicalName) return r;
                 const next = { ...r, flag: { ...(r.flag ?? {}) } };
                 next.flag[dateField] = selectedFlag;
                 return next;
@@ -1682,7 +1766,8 @@ const loadDates = async (dates: string[]) => {
           // 1) 全台系 → フラグ解除（同機種すべて 0）
           if (originalFlag === 9 && selectedFlag === 0) {
             Object.entries(data).forEach(([key, val]: [string, any]) => {
-              if (val.name === targetName) {
+              const canonical = resolveDisplayName(String(val?.name ?? ''));
+              if (canonical === targetCanonicalName) {
                 ops.push({ path: new FieldPath('data', key, 'flag'), value: 0 });
               }
             });
@@ -1690,7 +1775,8 @@ const loadDates = async (dates: string[]) => {
           // 2) 全台系 選択（同機種すべて 9）
           else if (selectedFlag === 9) {
             Object.entries(data).forEach(([key, val]: [string, any]) => {
-              if (val.name === targetName) {
+              const canonical = resolveDisplayName(String(val?.name ?? ''));
+              if (canonical === targetCanonicalName) {
                 ops.push({ path: new FieldPath('data', key, 'flag'), value: 9 });
               }
             });
@@ -1698,7 +1784,8 @@ const loadDates = async (dates: string[]) => {
           // 3) 個別更新（対象セルのみ）
           else {
             Object.entries(data).forEach(([key, val]: [string, any]) => {
-              if (val.name === targetName && val.machineNumber === targetNumber) {
+              const canonical = resolveDisplayName(String(val?.name ?? ''));
+              if (canonical === targetCanonicalName && String(val?.machineNumber ?? '') === targetNumber) {
                 ops.push({ path: new FieldPath('data', key, 'flag'), value: selectedFlag });
               }
             });
@@ -1719,22 +1806,26 @@ const loadDates = async (dates: string[]) => {
 
           rowDataRef.current.forEach((row: any) => {
             if (!row.flag) row.flag = {};
-            if (originalFlag === 9 && selectedFlag === 0 && row.name === targetName) {
+            const canonical = resolveDisplayName(String(row?.name ?? row?.modelName ?? ''));
+            const rowNumber = String(row?.machineNumber ?? '');
+            if (originalFlag === 9 && selectedFlag === 0 && canonical === targetCanonicalName) {
               row.flag[field] = 0;
-            } else if (selectedFlag === 9 && row.name === targetName) {
+            } else if (selectedFlag === 9 && canonical === targetCanonicalName) {
               row.flag[field] = 9;
-            } else if (row.name === targetName && row.machineNumber === targetNumber) {
+            } else if (canonical === targetCanonicalName && rowNumber === targetNumber) {
               row.flag[field] = selectedFlag;
             }
           });
 
           numberRowDataRef.current.forEach((row: any) => {
             if (!row.flag) row.flag = {};
-            if (originalFlag === 9 && selectedFlag === 0 && row.name === targetName) {
+            const canonical = resolveDisplayName(String(row?.name ?? row?.modelName ?? ''));
+            const rowNumber = String(row?.machineNumber ?? '');
+            if (originalFlag === 9 && selectedFlag === 0 && canonical === targetCanonicalName) {
               row.flag[field] = 0;
-            } else if (selectedFlag === 9 && row.name === targetName) {
+            } else if (selectedFlag === 9 && canonical === targetCanonicalName) {
               row.flag[field] = 9;
-            } else if (row.name === targetName && row.machineNumber === targetNumber) {
+            } else if (canonical === targetCanonicalName && rowNumber === targetNumber) {
               row.flag[field] = selectedFlag;
             }
           });
@@ -1815,6 +1906,7 @@ function buildNumberColumns(
   latestDate: string,        // ★ 追加
   todayColumnHeader: string,
   hasTodayDiffData: boolean,
+  resolveDisplayName: (name: string) => string,
   getTooltipColor: (machineNumber: number | string | null | undefined) => string | undefined,
   getTooltipText: (machineNumber: number | string | null | undefined) => string | undefined
 ): ColDef[] {
@@ -1873,7 +1965,7 @@ function buildNumberColumns(
       field: 'name',
       pinned: 'left',
       width: 90,
-      valueGetter: (p) => getDisplayName(p.data?.name),
+      valueGetter: (p) => resolveDisplayName(p.data?.name ?? ''),
       // ★ 固定列もグレー化
       cellStyle: (p) => {
         const base: any = {
@@ -2020,19 +2112,6 @@ function buildNumberColumns(
 }
 
 
-// SlotDiffGrid.tsx の下の方に追加
-function getDisplayName(name: string): string {
-  if (!name) return '';
-  // ★ 特定機種の省略ルール
-  if (name === 'ToLOVEるダークネス TRANCE ver.8.7') {
-    return 'ToLOVEるTRANCE'; // ← 省略名
-  }
-  if (name === '革命機ヴァルヴレイヴ2') {
-    return 'ヴヴヴ2'; // ← 省略名
-  }
-  return name;
-}
-
 // ========= 機種別（平均）columns =========
 function buildGroupedColumnsForDates(
   dates: string[],
@@ -2040,7 +2119,8 @@ function buildGroupedColumnsForDates(
   showModal: (value: any, row: any, field: string) => void,
   latestDate: string,
   todayColumnHeader: string,
-  hasTodayDiffData: boolean
+  hasTodayDiffData: boolean,
+  resolveDisplayName: (name: string) => string
 ): ColDef[] {  const existingFields = new Set(existing.map(c => c.field));
   const cols: ColDef[] = [];
 
@@ -2054,7 +2134,7 @@ function buildGroupedColumnsForDates(
     cols.push({
       headerName: '機種名',
       field: 'name',
-      valueGetter: (p) => getDisplayName(p.data?.name ?? p.data?.modelName ?? ''),
+      valueGetter: (p) => resolveDisplayName(p.data?.name ?? p.data?.modelName ?? ''),
       pinned: 'left',
       width: 100,
       cellStyle: (p: any) => {
