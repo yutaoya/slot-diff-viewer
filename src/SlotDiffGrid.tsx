@@ -24,7 +24,8 @@ import { transformToGridData, transformToGroupedGridData, transformToTailGridDat
 import { Input, Modal, Radio } from 'antd';
 import { doc, updateDoc, getDoc, getFirestore, FieldPath, writeBatch, collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from './firebase';
-import { FormControl, MenuItem, Select } from '@mui/material';
+import { FormControl, MenuItem, Select, Switch } from '@mui/material';
+import { styled } from '@mui/material/styles';
 import { SelectChangeEvent } from '@mui/material/Select';
 import Box from '@mui/material/Box';
 import Tabs from '@mui/material/Tabs';
@@ -44,6 +45,7 @@ interface Props {
 }
 
 type ViewMode = 'number' | 'model' | 'tail'; // 台番別 / 機種別（平均）/ 末尾別
+type DisplayMetric = 'diff' | 'games'; // 差枚 / 回転数
 
 type TodayOatariHistoryRow = {
   count?: string;
@@ -75,6 +77,64 @@ type TodaySnapshotItem = {
   oatariHistory?: TodayOatariHistoryRow[]; // 旧形式フォールバック
 };
 
+type GridUiStateSnapshot = {
+  columnState?: any[];
+  scrollTop?: number;
+  scrollLeft?: number;
+};
+
+const formatLineSpacingThumbIcon = encodeURIComponent(
+  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='#ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M7 6h12M7 12h12M7 18h12M3 4v16M3 8l-2-2 2-2M3 16l-2 2 2 2'/></svg>"
+);
+
+const Android12LineSpacingSwitch = styled(Switch)(() => ({
+  width: 56,
+  height: 32,
+  padding: 0,
+  '& .MuiSwitch-switchBase': {
+    margin: 4,
+    padding: 0,
+    transform: 'translateX(0px)',
+    '&.Mui-checked': {
+      transform: 'translateX(24px)',
+      color: '#fff',
+      '& .MuiSwitch-thumb': {
+        backgroundColor: '#2e7d32',
+      },
+      '& + .MuiSwitch-track': {
+        backgroundColor: '#81c784',
+        opacity: 1,
+      },
+    },
+    '&.Mui-disabled + .MuiSwitch-track': {
+      opacity: 0.45,
+    },
+  },
+  '& .MuiSwitch-thumb': {
+    width: 24,
+    height: 24,
+    boxSizing: 'border-box',
+    boxShadow: 'none',
+    backgroundColor: '#9e9e9e',
+    position: 'relative',
+    '&::before': {
+      content: '""',
+      display: 'block',
+      position: 'absolute',
+      inset: 0,
+      backgroundRepeat: 'no-repeat',
+      backgroundPosition: 'center',
+      backgroundSize: '16px 16px',
+      backgroundImage: `url("data:image/svg+xml;utf8,${formatLineSpacingThumbIcon}")`,
+    },
+  },
+  '& .MuiSwitch-track': {
+    borderRadius: 16,
+    backgroundColor: '#c5c5c5',
+    opacity: 1,
+  },
+}));
+
 export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const [columnDefs, setColumnDefs] = useState<ColDef[]>([]);
   const [rowData, setRowData] = useState<any[]>([]);
@@ -94,6 +154,11 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
 
   const [viewMode, setViewMode] = useState<ViewMode>('number');
   const viewModeRef = useRef<ViewMode>('number');
+  const [displayMetric, setDisplayMetric] = useState<DisplayMetric>('diff');
+  const displayMetricRef = useRef<DisplayMetric>('diff');
+  const [showGroupedWinStats, setShowGroupedWinStats] = useState(false);
+  const showGroupedWinStatsRef = useRef(false);
+  const [gridRemountNonce, setGridRemountNonce] = useState(0);
   const [disableVirtualization, setDisableVirtualization] = useState(false);
   const virtualizationPendingRef = useRef(false);
 
@@ -138,6 +203,9 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const [todayColumnHeader, setTodayColumnHeader] = useState('本日');
   const [hasTodayDiffData, setHasTodayDiffData] = useState(false);
   const [nameMapReady, setNameMapReady] = useState(false);
+  const lastHorizontalScrollLeftRef = useRef(0);
+  const gridUiStateByKeyRef = useRef<Record<string, GridUiStateSnapshot>>({});
+  const pendingGridUiRestoreRef = useRef<GridUiStateSnapshot | null>(null);
 
   const rowDataRef = useRef<any[]>([]);  // ★ 追加
   const pendingScrollRestoreRef = useRef<number | null>(null);
@@ -172,6 +240,87 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     return next;
   }, [normalizeMachineName]);
 
+  const toNumericValue = useCallback((value: unknown): number | '-' => {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string') {
+      const normalized = value.replace(/,/g, '').trim();
+      if (!normalized || normalized === '-') return '-';
+      const match = normalized.match(/-?\d+/);
+      if (!match) return '-';
+      const n = Number(match[0]);
+      return Number.isFinite(n) ? n : '-';
+    }
+    return '-';
+  }, []);
+
+  const buildDisplayDataMap = useCallback((source: Record<string, any>, metric: DisplayMetric) => {
+    if (metric === 'diff') return source ?? {};
+    const out: Record<string, any> = {};
+    Object.entries(source ?? {}).forEach(([dateKey, dateData]) => {
+      if (Array.isArray(dateData)) {
+        out[dateKey] = dateData.map((item: any) => {
+          if (!item || typeof item !== 'object') return item;
+          return { ...item, diff: toNumericValue(item?.games) };
+        });
+        return;
+      }
+      if (dateData && typeof dateData === 'object') {
+        const mapped: Record<string, any> = {};
+        Object.entries(dateData).forEach(([key, item]) => {
+          if (!item || typeof item !== 'object') {
+            mapped[key] = item;
+            return;
+          }
+          mapped[key] = { ...item, diff: toNumericValue((item as any)?.games) };
+        });
+        out[dateKey] = mapped;
+        return;
+      }
+      out[dateKey] = dateData;
+    });
+    return out;
+  }, [toNumericValue]);
+
+  const pickTodayMetricValue = useCallback((item: TodaySnapshotItem | undefined, metric: DisplayMetric): number | null => {
+    if (!item) return null;
+    const rawValue = metric === 'games' ? item.totalGameCount : item.currentDifference;
+    const parsed = toNumericValue(rawValue);
+    return typeof parsed === 'number' ? parsed : null;
+  }, [toNumericValue]);
+
+  const buildTodayMetricMapFromSnapshot = useCallback((
+    snapshotMap: Record<string, TodaySnapshotItem>,
+    metric: DisplayMetric
+  ): Record<string, number> => {
+    const nextMap: Record<string, number> = {};
+    Object.entries(snapshotMap ?? {}).forEach(([machineKey, item]) => {
+      const key = String(item?.machineNumber ?? machineKey);
+      const value = pickTodayMetricValue(item, metric);
+      if (value !== null) {
+        nextMap[key] = value;
+      }
+    });
+    return nextMap;
+  }, [pickTodayMetricValue]);
+
+  const applyNumberTotalLabelByMetric = useCallback((rows: any[]) => {
+    if (displayMetric !== 'games') return rows;
+    return rows.map((row) => (
+      row?.isTotalRow
+        ? { ...row, name: '総回転数' }
+        : row
+    ));
+  }, [displayMetric]);
+
+  const applyGroupedTotalLabelByMetric = useCallback((rows: any[]) => {
+    if (displayMetric !== 'games') return rows;
+    return rows.map((row) => (
+      row?.isTotalRow
+        ? { ...row, name: '平均回転数' }
+        : row
+    ));
+  }, [displayMetric]);
+
   const scheduleRestoreVerticalScroll = useCallback((top: number) => {
     if (!top) return;
     requestAnimationFrame(() => {
@@ -196,6 +345,91 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     );
   }, []);
 
+  const getCurrentHorizontalScrollLeft = useCallback(() => {
+    return (
+      (document.querySelector('.ag-body-horizontal-scroll-viewport') as HTMLElement | null)?.scrollLeft ??
+      0
+    );
+  }, []);
+
+  const buildGridUiStateKey = useCallback((mode: ViewMode, metric: DisplayMetric) => {
+    return `${mode}:${metric}`;
+  }, []);
+
+  const captureGridUiState = useCallback((mode: ViewMode, metric: DisplayMetric): GridUiStateSnapshot => {
+    const api = gridRef.current?.api as any;
+    const snapshot: GridUiStateSnapshot = {
+      columnState: typeof api?.getColumnState === 'function' ? api.getColumnState() : undefined,
+      scrollTop: getCurrentVerticalScrollTop(),
+      scrollLeft: getCurrentHorizontalScrollLeft(),
+    };
+    gridUiStateByKeyRef.current[buildGridUiStateKey(mode, metric)] = snapshot;
+    return snapshot;
+  }, [buildGridUiStateKey, getCurrentHorizontalScrollLeft, getCurrentVerticalScrollTop]);
+
+  const queueGridUiRestore = useCallback((
+    mode: ViewMode,
+    metric: DisplayMetric,
+    fallback?: GridUiStateSnapshot
+  ) => {
+    const key = buildGridUiStateKey(mode, metric);
+    pendingGridUiRestoreRef.current = gridUiStateByKeyRef.current[key] ?? fallback ?? null;
+  }, [buildGridUiStateKey]);
+
+  const applyPendingGridUiRestore = useCallback(() => {
+    const pending = pendingGridUiRestoreRef.current;
+    if (!pending) return false;
+    pendingGridUiRestoreRef.current = null;
+
+    const api = gridRef.current?.api as any;
+    if (!api) {
+      pendingGridUiRestoreRef.current = pending;
+      return false;
+    }
+
+    const hasColumns = (() => {
+      const cols = api?.getColumns?.();
+      return Array.isArray(cols) ? cols.length > 0 : true;
+    })();
+    if (Array.isArray(pending.columnState) && pending.columnState.length > 0 && !hasColumns) {
+      pendingGridUiRestoreRef.current = pending;
+      return false;
+    }
+
+    if (Array.isArray(pending.columnState) && pending.columnState.length > 0 && typeof api.applyColumnState === 'function') {
+      api.applyColumnState({
+        state: pending.columnState,
+        applyOrder: true,
+      });
+    }
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (typeof pending.scrollTop === 'number') {
+          if (typeof api.setVerticalScrollPosition === 'function') {
+            api.setVerticalScrollPosition(pending.scrollTop);
+          } else {
+            const gridBody = document.querySelector('.ag-body-viewport') as HTMLElement | null;
+            if (gridBody) gridBody.scrollTop = pending.scrollTop;
+          }
+        }
+
+        if (typeof pending.scrollLeft === 'number') {
+          const horizontal = document.querySelector('.ag-body-horizontal-scroll-viewport') as HTMLElement | null;
+          if (horizontal) {
+            horizontal.scrollLeft = pending.scrollLeft;
+          }
+          lastHorizontalScrollLeftRef.current = pending.scrollLeft;
+        }
+      });
+    });
+    return true;
+  }, []);
+
+  useEffect(() => {
+    applyPendingGridUiRestore();
+  }, [rowData, columnDefs, viewMode, displayMetric, showGroupedWinStats, applyPendingGridUiRestore]);
+
   useEffect(() => {
     if (!nameMapReady) return;
     if (didInitRef.current) return;
@@ -210,6 +444,14 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   useEffect(() => {
     viewModeRef.current = viewMode;
   }, [viewMode]);
+
+  useEffect(() => {
+    displayMetricRef.current = displayMetric;
+  }, [displayMetric]);
+
+  useEffect(() => {
+    showGroupedWinStatsRef.current = showGroupedWinStats;
+  }, [showGroupedWinStats]);
 
   useEffect(() => {
     if (!machineTooltip) return;
@@ -348,27 +590,20 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
         const entries = payload?.data ?? {};
         const rootOatariHistoryStorage =
           typeof payload?.oatariHistoryStorage === 'string' ? payload.oatariHistoryStorage : undefined;
-        const nextMap: Record<string, number> = {};
         const detailMap: Record<string, TodaySnapshotItem> = {};
 
         Object.entries(entries).forEach(([key, item]) => {
           const machineKey = String(item?.machineNumber ?? key);
-          const currentDiff = item?.currentDifference;
-          const n = typeof currentDiff === 'number'
-            ? currentDiff
-            : (typeof currentDiff === 'string' && currentDiff.trim() !== '' ? Number(currentDiff) : NaN);
           const perMachineStorage =
             typeof item?.oatariHistoryStorage === 'string' ? item.oatariHistoryStorage : undefined;
           detailMap[machineKey] = {
             ...(item as TodaySnapshotItem),
             oatariHistoryStorage: perMachineStorage ?? rootOatariHistoryStorage,
           };
-          if (Number.isFinite(n)) {
-            nextMap[machineKey] = n;
-          }
         });
 
         if (!cancelled) {
+          const nextMap = buildTodayMetricMapFromSnapshot(detailMap, displayMetricRef.current);
           setTodayDiffMap(nextMap);
           setHasTodayDiffData(Object.keys(nextMap).length > 0);
           todaySnapshotMapRef.current = detailMap;
@@ -392,6 +627,12 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
       cancelled = true;
     };
   }, [storeId]);
+
+  useEffect(() => {
+    const nextMap = buildTodayMetricMapFromSnapshot(todaySnapshotMapRef.current, displayMetric);
+    setTodayDiffMap(nextMap);
+    setHasTodayDiffData(Object.keys(nextMap).length > 0);
+  }, [displayMetric, buildTodayMetricMapFromSnapshot]);
 
   useEffect(() => {
     if (numberRowDataRef.current.length === 0) return;
@@ -757,16 +998,20 @@ const loadDates = async (dates: string[]) => {
     rawMapRef.current[k] = v;
   });
 
+  const displayRaw = buildDisplayDataMap(raw, displayMetric);
+
   // 台番別（最新日付の配列を基軸に transform）
   const latestKey = dates[dates.length - 1];
-  const latest = raw[latestKey] || Object.values(raw)[0] || [];
+  const latest = displayRaw[latestKey] || Object.values(displayRaw)[0] || [];
 
-  const numberRows = transformToGridData(latest, raw);
+  let numberRows = transformToGridData(latest, displayRaw);
+  numberRows = applyNumberTotalLabelByMetric(numberRows);
 
   // ★ 読み込み済み + 追加日付から「実効的な最新日付」を決定
   const allLoaded = new Set<string>([...Array.from(loadedDates), ...dates]);
   const allLoadedArr = [...allLoaded];
-  const effectiveLatestDate = pickEffectiveLatestDate(rawMapRef.current, allLoadedArr);
+  const allDisplayData = buildDisplayDataMap(rawMapRef.current, displayMetric);
+  const effectiveLatestDate = pickEffectiveLatestDate(allDisplayData, allLoadedArr);
 
   // 台番別の“元データ”を更新（next の順序を尊重）
   numberRowDataRef.current = mergeRowData(numberRowDataRef.current, numberRows);
@@ -804,9 +1049,9 @@ const loadDates = async (dates: string[]) => {
     setRowData(numberRowDataRef.current);
     setColumnDefs(numberColDefsRef.current);
   } else if (viewMode === 'model') {
-    buildAndSetGrouped(allLoadedArr);
+    buildAndSetGrouped(allLoadedArr, allDisplayData);
   } else {
-    buildAndSetTail(allLoadedArr);
+    buildAndSetTail(allLoadedArr, allDisplayData);
   }
 
   pendingScrollRestoreRef.current = prevScrollTop;
@@ -825,6 +1070,13 @@ const loadDates = async (dates: string[]) => {
     const scrollLeft = container.scrollLeft;
     const clientWidth = container.clientWidth;
     const scrollWidth = container.scrollWidth;
+    const hasHorizontalOverflow = scrollWidth > clientWidth + 1;
+    const movingRight = scrollLeft > lastHorizontalScrollLeftRef.current;
+    lastHorizontalScrollLeftRef.current = scrollLeft;
+
+    // Ignore synthetic/layout-driven horizontal events.
+    if (!hasHorizontalOverflow) return;
+    if (!movingRight) return;
 
     if (scrollLeft + clientWidth >= scrollWidth - 10) {
       await loadMoreDates();
@@ -842,7 +1094,7 @@ const loadDates = async (dates: string[]) => {
       lastTap.current = now;
     };
 
-    const v = props.value;
+    const v = props.valueFormatted ?? props.value;
     return (
       <div onClick={handleClick} style={{ width: '100%', height: '100%' }}>
         {v === null || v === undefined || v === '-' ? '-' : v.toLocaleString?.() ?? v}
@@ -862,8 +1114,14 @@ const loadDates = async (dates: string[]) => {
     };
 
     const v = props.value;
+    const parsed = parseGroupedMetricCell(v);
     const field = props.colDef.field as string;
     const flag = props.node?.data?.flag?.[field];
+    const showDetailLines = (
+      viewModeRef.current === 'model' &&
+      displayMetricRef.current === 'diff' &&
+      showGroupedWinStatsRef.current
+    );
 
     return (
       <div
@@ -883,7 +1141,33 @@ const loadDates = async (dates: string[]) => {
             }}
           />
         ) : null}
-        {v === null || v === undefined || v === '-' ? '-' : v.toLocaleString?.() ?? v}
+        {parsed && showDetailLines ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.1 }}>
+            <span>{parsed.avg}</span>
+            <span style={{ fontSize: '0.7em' }}>{(parsed.winRate * 100).toFixed(1)}%</span>
+            <span style={{ fontSize: '0.65em' }}>{parsed.ratio}</span>
+          </div>
+        ) : (parsed ? parsed.avg.toLocaleString() : (v === null || v === undefined || v === '-' ? '-' : v.toLocaleString?.() ?? v))}
+      </div>
+    );
+  };
+
+  const GroupedNameCellRenderer = (props: any) => {
+    const v = props.valueFormatted ?? props.value;
+    const useTightLineHeight = (
+      viewModeRef.current === 'model' &&
+      displayMetricRef.current === 'diff' &&
+      showGroupedWinStatsRef.current
+    );
+    return (
+      <div
+        style={{
+          width: '100%',
+          whiteSpace: 'normal',
+          lineHeight: useTightLineHeight ? 1.1 : undefined,
+        }}
+      >
+        {v}
       </div>
     );
   };
@@ -894,11 +1178,34 @@ const loadDates = async (dates: string[]) => {
     setSelectedName(e.target.value);
     virtualizationPendingRef.current = true;
     setDisableVirtualization(true);
+    // Prevent mobile browser zoom/focus jump from hiding the top tabs.
+    requestAnimationFrame(() => {
+      const target = e.target as HTMLInputElement | null;
+      target?.blur?.();
+      const active = document.activeElement as HTMLElement | null;
+      active?.blur?.();
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    });
+  };
+
+  const handleToggleDisplayMetric = () => {
+    const currentMode = viewModeRef.current;
+    const prevMetric = displayMetricRef.current;
+    const currentSnapshot = captureGridUiState(currentMode, prevMetric);
+    const nextMetric: DisplayMetric = prevMetric === 'diff' ? 'games' : 'diff';
+
+    queueGridUiRestore(currentMode, nextMetric, currentSnapshot);
+    displayMetricRef.current = nextMetric;
+    if (nextMetric === 'games') {
+      showGroupedWinStatsRef.current = false;
+      setShowGroupedWinStats(false);
+    }
+    setDisplayMetric(nextMetric);
   };
 
   // ========= 機種別（平均） =========
-  const buildAndSetGrouped = (loadedDatesOverride?: string[]) => {
-    const allData = rawMapRef.current;
+  const buildAndSetGrouped = (loadedDatesOverride?: string[], allDataOverride?: Record<string, any>) => {
+    const allData = allDataOverride ?? buildDisplayDataMap(rawMapRef.current, displayMetric);
 
     // 読み込み済み日付（降順：最新→古い）
     const loaded = (loadedDatesOverride ?? Array.from(loadedDates)).sort((a, b) => b.localeCompare(a));
@@ -909,11 +1216,16 @@ const loadDates = async (dates: string[]) => {
 
     // あなたの transform に合わせる（機種名＋各日付の平均差枚、台番は空欄）
     const effectiveLatestDate = pickEffectiveLatestDate(allData, loaded);
-    const groupedRows = transformToGroupedGridData(latest, allData);
+    let groupedRows = transformToGroupedGridData(latest, allData);
+    groupedRows = applyGroupedTotalLabelByMetric(groupedRows);
+    if (displayMetric === 'diff') {
+      groupedRows = applyGroupedDateMetricCells(groupedRows, allData);
+    }
     const groupedWithToday = applyTodayDiffToGroupedRows(
       groupedRows,
       numberRowDataRef.current,
-      effectiveLatestDate || ''
+      effectiveLatestDate || '',
+      displayMetric === 'diff'
     );
     setRowData(groupedWithToday);
 
@@ -925,46 +1237,100 @@ const loadDates = async (dates: string[]) => {
       effectiveLatestDate || '',
       todayColumnHeader,
       hasTodayDiffData,
-      resolveDisplayName
+      resolveDisplayName,
+      displayMetric
     );
     setColumnDefs(groupedCols);
   };
 
   // ========= 末尾別（平均） =========
-  const buildAndSetTail = (loadedDatesOverride?: string[]) => {
-    const allData = rawMapRef.current;
+  const buildAndSetTail = (loadedDatesOverride?: string[], allDataOverride?: Record<string, any>) => {
+    const allData = allDataOverride ?? buildDisplayDataMap(rawMapRef.current, displayMetric);
     const loaded = (loadedDatesOverride ?? Array.from(loadedDates)).sort((a, b) => b.localeCompare(a));
     const effectiveLatestDate = pickEffectiveLatestDate(allData, loaded);
 
     const tailRows = transformToTailGridData(allData);
-    const tailWithToday = applyTodayDiffToTailRows(tailRows, numberRowDataRef.current);
+    const tailWithToday = applyTodayDiffToTailRows(
+      tailRows,
+      numberRowDataRef.current,
+      displayMetric === 'diff'
+    );
     const tailCols = buildTailColumnsForDates(
       loaded,
       effectiveLatestDate || '',
       todayColumnHeader,
-      hasTodayDiffData
+      hasTodayDiffData,
+      displayMetric,
+      tailWithToday
     );
 
     setRowData(tailWithToday);
     setColumnDefs(tailCols);
   };
 
+  useEffect(() => {
+    const loadedArr = Array.from(loadedDates);
+    if (loadedArr.length === 0) return;
+
+    pendingScrollRestoreRef.current = getCurrentVerticalScrollTop();
+
+    const allDataForDisplay = buildDisplayDataMap(rawMapRef.current, displayMetric);
+    const loadedDesc = [...loadedArr].sort((a, b) => b.localeCompare(a));
+    const latestKey = loadedDesc[0];
+    const latest = (latestKey && allDataForDisplay[latestKey]) ? allDataForDisplay[latestKey] : Object.values(allDataForDisplay)[0] ?? {};
+
+    let numberRows = transformToGridData(latest, allDataForDisplay);
+    numberRows = applyNumberTotalLabelByMetric(numberRows);
+    numberRows = applyTodayDiffToRows(
+      numberRows,
+      todayDiffMap,
+      todaySnapshotDateKey
+    );
+    const effectiveLatestDate = pickEffectiveLatestDate(allDataForDisplay, loadedArr);
+    if (effectiveLatestDate) {
+      numberRows = sortByLatestMissing(numberRows, effectiveLatestDate);
+    } else {
+      numberRows = sortByMachineNumber(numberRows);
+    }
+    numberRowDataRef.current = numberRows;
+
+    numberColDefsRef.current = buildNumberColumns(
+      loadedDesc,
+      [],
+      showModal,
+      effectiveLatestDate || '',
+      todayColumnHeader,
+      hasTodayDiffData,
+      resolveDisplayName,
+      getTooltipColor,
+      getTooltipText
+    );
+
+    if (viewModeRef.current === 'number') {
+      setRowData(numberRowDataRef.current);
+      setColumnDefs(numberColDefsRef.current);
+      return;
+    }
+    if (viewModeRef.current === 'model') {
+      buildAndSetGrouped(loadedArr, allDataForDisplay);
+      return;
+    }
+    buildAndSetTail(loadedArr, allDataForDisplay);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [displayMetric]);
+
   // ========= タブ切替 =========
   const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
+    const currentMode = viewModeRef.current;
+    const currentMetric = displayMetricRef.current;
+    captureGridUiState(currentMode, currentMetric);
+
     const newMode: ViewMode = newValue === 0 ? 'number' : newValue === 1 ? 'model' : 'tail';
+    queueGridUiRestore(newMode, currentMetric);
     setViewMode(newMode);
     if (newMode === 'tail') {
       setSelectedName('');
     }
-
-    // スクロールリセット
-    const gridBody = document.querySelector('.ag-body-viewport') as HTMLElement;
-    if (gridBody) gridBody.scrollTop = 0;
-
-    setTimeout(() => {
-      const api = gridRef.current?.api;
-      if (api) api.ensureIndexVisible(0, 'top');
-    }, 0);
 
     if (newMode === 'model') {
       buildAndSetGrouped();
@@ -978,6 +1344,43 @@ const loadDates = async (dates: string[]) => {
   };
 
   const tabValue = viewMode === 'number' ? 0 : viewMode === 'model' ? 1 : 2;
+  const groupedRowNeedsExtraHeight = viewMode === 'model' && displayMetric === 'diff' && showGroupedWinStats;
+  const currentGridRowHeight = viewMode === 'tail' || groupedRowNeedsExtraHeight ? 34 : 22;
+  const gridRenderKey = `win-stats-remount-${gridRemountNonce}`;
+  const applyCurrentRowHeight = useCallback(() => {
+    const api = gridRef.current?.api as any;
+    if (!api) return;
+    // Force AG Grid to re-run getRowHeight when display mode/toggles change.
+    if (typeof api.resetRowHeights === 'function') {
+      api.resetRowHeights();
+    } else {
+      api.forEachNode?.((node: any) => {
+        node?.setRowHeight?.(currentGridRowHeight);
+      });
+      api.onRowHeightChanged?.();
+    }
+    api.redrawRows?.();
+    api.refreshCells?.({ force: true });
+  }, [currentGridRowHeight]);
+
+  useEffect(() => {
+    applyCurrentRowHeight();
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        applyCurrentRowHeight();
+      });
+    });
+  }, [applyCurrentRowHeight, rowData, columnDefs]);
+
+  useEffect(() => {
+    if (displayMetric === 'games' && showGroupedWinStats) {
+      setShowGroupedWinStats(false);
+    }
+  }, [displayMetric, showGroupedWinStats]);
+
+  useEffect(() => {
+    applyCurrentRowHeight();
+  }, [showGroupedWinStats, displayMetric, viewMode, applyCurrentRowHeight]);
 
   const todayGalleryStats = useMemo(() => {
     const parseNumeric = (value: unknown): number | null => {
@@ -1263,18 +1666,20 @@ const loadDates = async (dates: string[]) => {
       <div style={{ flex: 1, minHeight: 0, width: '100%' }}>
         <div className="ag-theme-alpine" style={{ height: '100%', width: '100%' }}>
           <AgGridReact
+            key={gridRenderKey}
             ref={gridRef}
             rowData={filteredRowData}
             columnDefs={columnDefs}
             components={{
               customCellRenderer: CustomCellRenderer,
               groupedCellRenderer: GroupedCellRenderer,
+              groupedNameCellRenderer: GroupedNameCellRenderer,
             }}
             suppressMovableColumns={true}
             suppressHorizontalScroll={false}
             suppressRowVirtualisation={disableVirtualization}
             suppressColumnVirtualisation={disableVirtualization}
-            getRowHeight={() => (viewMode === 'tail' ? 34 : 22)}
+            getRowHeight={() => currentGridRowHeight}
             headerHeight={20}
             defaultColDef={{
               resizable: false,
@@ -1288,6 +1693,8 @@ const loadDates = async (dates: string[]) => {
               headerClass: 'custom-header',
             }}
             onModelUpdated={() => {
+              applyPendingGridUiRestore();
+              applyCurrentRowHeight();
               if (!virtualizationPendingRef.current) return;
               virtualizationPendingRef.current = false;
               requestAnimationFrame(() => {
@@ -1317,15 +1724,18 @@ const loadDates = async (dates: string[]) => {
       </div>
 
       {/* フィルタ（機種名） */}
-      <div style={{ marginTop: 6, minHeight: 36, flexShrink: 0 }}>
+      <div style={{ marginTop: 6, marginBottom: 6, minHeight: 36, flexShrink: 0, display: 'flex', alignItems: 'center' }}>
       {viewMode !== 'tail' ? (
-        <FormControl variant="outlined"  fullWidth style={{ width: 240 }}>
+        <FormControl variant="outlined" fullWidth style={{ width: 'min(240px, 50vw)' }}>
           <Select
             labelId="machine-select-label"
             value={selectedName}
             onChange={handleSelectChange}
             displayEmpty
-            style={{ height: 30, fontSize: "0.8em" }}
+            sx={{
+              height: 30,
+              fontSize: '0.8em',
+            }}
           >
             <MenuItem value="" selected>
               <em>すべての機種を表示</em>
@@ -1345,7 +1755,51 @@ const loadDates = async (dates: string[]) => {
               ))}
           </Select>
         </FormControl>
-      ) : <div style={{ width: 240 }} />}
+      ) : <div style={{ width: 'min(240px, 50vw)' }} />}
+
+      <Button
+        variant="outlined"
+        onClick={handleToggleDisplayMetric}
+        sx={{
+          marginLeft: 1,
+          height: 30,
+          minWidth: 0,
+          padding: '0 10px',
+          borderRadius: 1,
+          textTransform: 'none',
+          fontSize: '0.78rem',
+          fontWeight: 700,
+          color: '#1565c0',
+          borderColor: '#90caf9',
+          '&:hover': {
+            borderColor: '#64b5f6',
+            backgroundColor: 'rgba(100,181,246,0.12)',
+          },
+        }}
+      >
+        {displayMetric === 'diff' ? '差枚' : '回転数'}
+      </Button>
+
+      {viewMode === 'model' ? (
+        <Box sx={{ marginLeft: 0.5, display: 'flex', alignItems: 'center', lineHeight: 0 }}>
+          <Android12LineSpacingSwitch
+            checked={displayMetric === 'diff' && showGroupedWinStats}
+            onChange={(e) => {
+              const currentMode = viewModeRef.current;
+              const currentMetric = displayMetricRef.current;
+              const currentSnapshot = captureGridUiState(currentMode, currentMetric);
+              queueGridUiRestore(currentMode, currentMetric, currentSnapshot);
+              const nextChecked = e.target.checked;
+              if (nextChecked !== showGroupedWinStatsRef.current) {
+                setGridRemountNonce((prev) => prev + 1);
+              }
+              showGroupedWinStatsRef.current = nextChecked;
+              setShowGroupedWinStats(nextChecked);
+            }}
+            disabled={displayMetric === 'games'}
+          />
+        </Box>
+      ) : null}
 
       <Button
         variant="contained"
@@ -2280,7 +2734,8 @@ function buildGroupedColumnsForDates(
   latestDate: string,
   todayColumnHeader: string,
   hasTodayDiffData: boolean,
-  resolveDisplayName: (name: string) => string
+  resolveDisplayName: (name: string) => string,
+  displayMetric: DisplayMetric
 ): ColDef[] {  const existingFields = new Set(existing.map(c => c.field));
   const cols: ColDef[] = [];
 
@@ -2290,11 +2745,46 @@ function buildGroupedColumnsForDates(
     return v === undefined || v === null || v === '-';
   };
 
+  const compareGroupedByAverageDiff = (
+    valueA: any,
+    valueB: any,
+    _nodeA: any,
+    _nodeB: any,
+    isDescending?: boolean
+  ) => {
+    const a = parseGroupedMetricCell(valueA);
+    const b = parseGroupedMetricCell(valueB);
+    const aMissing = !a;
+    const bMissing = !b;
+
+    if (aMissing && bMissing) return 0;
+    if (aMissing && !bMissing) return isDescending ? -1 : 1;
+    if (!aMissing && bMissing) return isDescending ? 1 : -1;
+
+    const avgDiff = a!.avg - b!.avg;
+    if (avgDiff !== 0) return avgDiff;
+
+    const winRateDiff = a!.winRate - b!.winRate;
+    if (winRateDiff !== 0) return winRateDiff;
+    return 0;
+  };
+
+  const groupedComparator = displayMetric === 'games'
+    ? compareNumericCellValues
+    : compareGroupedByAverageDiff;
+
+  const getGroupedCellColor = (value: any) => {
+    const parsed = parseGroupedMetricCell(value);
+    if (!parsed) return '#333';
+    return parsed.avg >= 0 ? '#4c6cb3' : '#d9333f';
+  };
+
   if (!existingFields.has('name')) {
     cols.push({
       headerName: '機種名',
       field: 'name',
       valueGetter: (p) => resolveDisplayName(p.data?.name ?? p.data?.modelName ?? ''),
+      cellRenderer: 'groupedNameCellRenderer',
       pinned: 'left',
       width: 100,
       cellStyle: (p: any) => {
@@ -2322,16 +2812,7 @@ function buildGroupedColumnsForDates(
       width: 60,
       cellRenderer: 'groupedCellRenderer',
       cellRendererParams: { showModal },
-      valueFormatter: (p: any) => {
-        const v = p?.value;
-        if (v === undefined || v === null || v === '-') return '-';
-        if (typeof v === 'number') {
-          const normalized = Object.is(v, -0) ? 0 : v;
-          return normalized.toLocaleString();
-        }
-        return v;
-      },
-      comparator: compareNumericCellValues,
+      comparator: groupedComparator,
       cellStyle: (p: any) => {
         const v = p?.value;
         const base: any = {
@@ -2343,10 +2824,7 @@ function buildGroupedColumnsForDates(
           borderRight: '1px solid #ccc',
         };
         if (!p?.data) return base;
-        if (typeof v === 'number') {
-          if (v >= 0 || Object.is(v, -0)) base.color = '#4c6cb3';
-          else base.color = '#d9333f';
-        }
+        base.color = getGroupedCellColor(v);
         if (!p.data?.isTotalRow && isMissingLatest(p.data)) {
           base.backgroundColor = '#e0e0e0';
           base.color = '#666';
@@ -2368,7 +2846,7 @@ function buildGroupedColumnsForDates(
     cellRenderer: 'groupedCellRenderer',
     // ★ 機種別でもダブルタップでモーダル起動
     cellRendererParams: { showModal },
-    comparator: compareNumericCellValues,
+    comparator: groupedComparator,
     cellStyle: (params) => {
       const v = params.value;
       const row = params.data;
@@ -2376,11 +2854,7 @@ function buildGroupedColumnsForDates(
 
       const flag = row?.flag?.[field];
 
-      let color = '#333';
-      if (typeof v === 'number') {
-        if (v >= 0) color = '#4c6cb3';
-        else if (v < 0) color = '#d9333f';
-      }
+      let color = getGroupedCellColor(v);
 
       let backgroundColor: string | undefined;
       switch (flag) {
@@ -2415,8 +2889,11 @@ function buildTailColumnsForDates(
   dates: string[],
   latestDate: string,
   todayColumnHeader: string,
-  hasTodayDiffData: boolean
+  hasTodayDiffData: boolean,
+  displayMetric: DisplayMetric,
+  tailRowsForScale: any[]
 ): ColDef[] {
+  const isGamesMetric = displayMetric === 'games';
   const parseTailCell = (value: any): { avg: number; ratio: string; winRate: number } | null => {
     if (typeof value !== 'string') return null;
     const m = value.match(/^(-?\d+)\((\d+)\/(\d+)\)$/);
@@ -2461,12 +2938,60 @@ function buildTailColumnsForDates(
     return 0;
   };
 
-  const getHeatmapColor = (winRate: number): string | undefined => {
+  const compareTailByAverage = (
+    valueA: any,
+    valueB: any,
+    _nodeA: any,
+    _nodeB: any,
+    isDescending?: boolean
+  ) => {
+    const a = parseTailAverage(valueA);
+    const b = parseTailAverage(valueB);
+    const aMissing = a === null;
+    const bMissing = b === null;
+
+    if (aMissing && bMissing) return 0;
+    if (aMissing && !bMissing) return isDescending ? -1 : 1;
+    if (!aMissing && bMissing) return isDescending ? 1 : -1;
+    return (a as number) - (b as number);
+  };
+
+  const tailComparator = isGamesMetric ? compareTailByAverage : compareTailByWinRate;
+
+  const getWinRateHeatmapColor = (winRate: number): string | undefined => {
     // 勝率40%以下は無色、40%超を薄い赤〜濃い赤にマップ
     if (winRate <= 0.4) return undefined;
     const clamped = Math.max(0.4, Math.min(1, winRate));
     const normalized = (clamped - 0.4) / 0.6; // 0..1
     const alpha = 0.12 + normalized * 0.73;
+    return `rgba(255, 40, 40, ${alpha.toFixed(3)})`;
+  };
+
+  const sortedDates = [...dates].sort((a, b) => b.localeCompare(a));
+  const fieldsForGamesScale = [todayColumnHeader ? 'todayDiff' : '', ...sortedDates].filter((f) => !!f);
+  const gamesScaleByField: Record<string, { min: number; max: number }> = {};
+  if (isGamesMetric) {
+    fieldsForGamesScale.forEach((field) => {
+      const values = (tailRowsForScale ?? [])
+        .map((row) => parseTailAverage(row?.[field]))
+        .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
+      if (values.length === 0) return;
+      gamesScaleByField[field] = {
+        min: Math.min(...values),
+        max: Math.max(...values),
+      };
+    });
+  }
+
+  const getGamesHeatmapColor = (avgGame: number, field: string): string | undefined => {
+    if (!Number.isFinite(avgGame)) return undefined;
+    const scale = gamesScaleByField[field];
+    if (!scale) return undefined;
+    const span = scale.max - scale.min;
+    if (span <= 0) return undefined;
+    const normalized = Math.max(0, Math.min(1, (avgGame - scale.min) / span));
+    if (normalized <= 0) return undefined;
+    const alpha = 0.08 + normalized * 0.52;
     return `rgba(255, 40, 40, ${alpha.toFixed(3)})`;
   };
 
@@ -2476,13 +3001,17 @@ function buildTailColumnsForDates(
     return v === undefined || v === null || v === '-';
   };
 
-  const sortedDates = [...dates].sort((a, b) => b.localeCompare(a));
   const dynamicCols: ColDef[] = sortedDates.map((date) => ({
     headerName: formatDate(date),
     field: date,
     width: 60,
-    comparator: compareTailByWinRate,
+    comparator: tailComparator,
     cellRenderer: (params: any) => {
+      if (isGamesMetric) {
+        const avg = parseTailAverage(params.value);
+        if (avg === null) return params.value;
+        return avg.toLocaleString();
+      }
       const parsed = parseTailCell(params.value);
       if (!parsed) return params.value;
       return (
@@ -2506,8 +3035,12 @@ function buildTailColumnsForDates(
       if (isMissingLatest(params.data)) {
         backgroundColor = '#e0e0e0';
         color = '#666';
+      } else if (isGamesMetric) {
+        if (avg !== null) {
+          backgroundColor = getGamesHeatmapColor(avg, date);
+        }
       } else if (parsed) {
-        backgroundColor = getHeatmapColor(parsed.winRate);
+        backgroundColor = getWinRateHeatmapColor(parsed.winRate);
       }
 
       return {
@@ -2549,8 +3082,13 @@ function buildTailColumnsForDates(
       field: 'todayDiff',
       hide: !hasTodayDiffData,
       width: 60,
-      comparator: compareTailByWinRate,
+      comparator: tailComparator,
       cellRenderer: (params: any) => {
+        if (isGamesMetric) {
+          const avg = parseTailAverage(params.value);
+          if (avg === null) return params.value;
+          return avg.toLocaleString();
+        }
         const parsed = parseTailCell(params.value);
         if (!parsed) return params.value;
         return (
@@ -2582,8 +3120,12 @@ function buildTailColumnsForDates(
         if (isMissingLatest(params.data)) {
           base.backgroundColor = '#e0e0e0';
           base.color = '#666';
+        } else if (isGamesMetric) {
+          if (avg !== null) {
+            base.backgroundColor = getGamesHeatmapColor(avg, 'todayDiff') ?? '#fff7cc';
+          }
         } else if (parsed) {
-          base.backgroundColor = getHeatmapColor(parsed.winRate) ?? '#fff7cc';
+          base.backgroundColor = getWinRateHeatmapColor(parsed.winRate) ?? '#fff7cc';
         }
         return base;
       },
@@ -2600,6 +3142,91 @@ function getPastDates(days: number, offset: number): string[] {
 
 function formatDate(yyyymmdd: string): string {
   return `${yyyymmdd.slice(4, 6)}/${yyyymmdd.slice(6)}`;
+}
+
+function formatGroupedMetricCell(sum: number, count: number, positiveCount: number): string {
+  if (!Number.isFinite(sum) || !Number.isFinite(count) || count <= 0) return '-';
+  const avg = Math.round(sum / count);
+  return `${avg}(${positiveCount}/${count})`;
+}
+
+function parseGroupedMetricCell(value: any): { avg: number; ratio: string; winRate: number } | null {
+  if (typeof value === 'string') {
+    const m = value.match(/^(-?\d+)\((\d+)\/(\d+)\)$/);
+    if (!m) return null;
+    const avg = Number(m[1]);
+    const positive = Number(m[2]);
+    const count = Number(m[3]);
+    if (!Number.isFinite(avg) || !Number.isFinite(positive) || !Number.isFinite(count) || count <= 0) {
+      return null;
+    }
+    return { avg, ratio: `(${positive}/${count})`, winRate: positive / count };
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return {
+      avg: value,
+      ratio: value > 0 ? '(1/1)' : '(0/1)',
+      winRate: value > 0 ? 1 : 0,
+    };
+  }
+  return null;
+}
+
+function applyGroupedDateMetricCells(rows: any[], allData: Record<string, any>): any[] {
+  if (!Array.isArray(rows) || rows.length === 0) return rows;
+  const dates = Object.keys(allData ?? {});
+  if (dates.length === 0) return rows;
+
+  const perDateByName: Record<string, Record<string, { sum: number; count: number; positiveCount: number }>> = {};
+  const perDateTotal: Record<string, { sum: number; count: number; positiveCount: number }> = {};
+
+  dates.forEach((date) => {
+    const day = allData?.[date] ?? {};
+    const byName: Record<string, { sum: number; count: number; positiveCount: number }> = {};
+    let totalSum = 0;
+    let totalCount = 0;
+    let totalPositiveCount = 0;
+
+    Object.values(day).forEach((item: any) => {
+      const name = String(item?.name ?? '');
+      const diff = item?.diff;
+      if (!name || typeof diff !== 'number') return;
+      if (!byName[name]) byName[name] = { sum: 0, count: 0, positiveCount: 0 };
+      byName[name].sum += diff;
+      byName[name].count += 1;
+      if (diff > 0) byName[name].positiveCount += 1;
+
+      totalSum += diff;
+      totalCount += 1;
+      if (diff > 0) totalPositiveCount += 1;
+    });
+
+    perDateByName[date] = byName;
+    perDateTotal[date] = { sum: totalSum, count: totalCount, positiveCount: totalPositiveCount };
+  });
+
+  return rows.map((row) => {
+    if (!row) return row;
+    const next = { ...row };
+
+    dates.forEach((date) => {
+      if (row?.isTotalRow) {
+        const t = perDateTotal[date];
+        next[date] = t && t.count > 0
+          ? formatGroupedMetricCell(t.sum, t.count, t.positiveCount)
+          : '-';
+        return;
+      }
+
+      const name = String(row?.name ?? row?.modelName ?? '');
+      const m = perDateByName[date]?.[name];
+      next[date] = m && m.count > 0
+        ? formatGroupedMetricCell(m.sum, m.count, m.positiveCount)
+        : '-';
+    });
+
+    return next;
+  });
 }
 
 function mergeRowData(prev: any[], next: any[]): any[] {
@@ -2677,7 +3304,12 @@ function applyTodayDiffToRows(
   });
 }
 
-function applyTodayDiffToGroupedRows(groupedRows: any[], numberRows: any[], latestDate: string): any[] {
+function applyTodayDiffToGroupedRows(
+  groupedRows: any[],
+  numberRows: any[],
+  latestDate: string,
+  includeStats: boolean
+): any[] {
   if (!Array.isArray(groupedRows) || groupedRows.length === 0) return groupedRows;
   if (!Array.isArray(numberRows) || numberRows.length === 0) {
     return groupedRows.map((row) => ({ ...row, todayDiff: '-', machineNumbers: [] }));
@@ -2691,9 +3323,11 @@ function applyTodayDiffToGroupedRows(groupedRows: any[], numberRows: any[], late
 
   const sumByName: Record<string, number> = {};
   const countByName: Record<string, number> = {};
+  const positiveByName: Record<string, number> = {};
   const machineNumbersByName: Record<string, string[]> = {};
   let totalSum = 0;
   let totalCount = 0;
+  let totalPositive = 0;
 
   numberRows.forEach((row) => {
     if (!row || row.isTotalRow) return;
@@ -2708,16 +3342,21 @@ function applyTodayDiffToGroupedRows(groupedRows: any[], numberRows: any[], late
     if (!name || typeof diff !== 'number') return;
     sumByName[name] = (sumByName[name] ?? 0) + diff;
     countByName[name] = (countByName[name] ?? 0) + 1;
+    if (diff > 0) positiveByName[name] = (positiveByName[name] ?? 0) + 1;
     totalSum += diff;
     totalCount += 1;
+    if (diff > 0) totalPositive += 1;
   });
 
   return groupedRows.map((row) => {
     if (!row) return row;
     if (row.isTotalRow) {
+      const totalAvg = totalCount > 0 ? Math.round(totalSum / totalCount) : '-';
       return {
         ...row,
-        todayDiff: totalCount > 0 ? Math.round(totalSum / totalCount) : '-',
+        todayDiff: includeStats
+          ? (totalCount > 0 ? formatGroupedMetricCell(totalSum, totalCount, totalPositive) : '-')
+          : totalAvg,
         machineNumbers: [],
       };
     }
@@ -2730,11 +3369,18 @@ function applyTodayDiffToGroupedRows(groupedRows: any[], numberRows: any[], late
       return a.localeCompare(b, 'ja');
     });
     if (count <= 0) return { ...row, todayDiff: '-', machineNumbers };
-    return { ...row, todayDiff: Math.round((sumByName[name] ?? 0) / count), machineNumbers };
+    const avg = Math.round((sumByName[name] ?? 0) / count);
+    return {
+      ...row,
+      todayDiff: includeStats
+        ? formatGroupedMetricCell(sumByName[name] ?? 0, count, positiveByName[name] ?? 0)
+        : avg,
+      machineNumbers,
+    };
   });
 }
 
-function applyTodayDiffToTailRows(tailRows: any[], numberRows: any[]): any[] {
+function applyTodayDiffToTailRows(tailRows: any[], numberRows: any[], includeStats: boolean): any[] {
   if (!Array.isArray(tailRows) || tailRows.length === 0) return tailRows;
   if (!Array.isArray(numberRows) || numberRows.length === 0) {
     return tailRows.map((row) => ({ ...row, todayDiff: '-' }));
@@ -2785,7 +3431,7 @@ function applyTodayDiffToTailRows(tailRows: any[], numberRows: any[]): any[] {
     const avg = Math.round(g.sum / g.count);
     return {
       ...row,
-      todayDiff: `${avg}(${g.positiveCount}/${g.count})`,
+      todayDiff: includeStats ? `${avg}(${g.positiveCount}/${g.count})` : avg,
     };
   });
 }
