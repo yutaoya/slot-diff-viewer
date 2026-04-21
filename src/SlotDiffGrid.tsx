@@ -681,6 +681,11 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
       void loadTodayOatariHistory(machineKey, snapshot);
       return;
     }
+    // 台番別フラグモーダルでは、対象日セルにデータがない場合は開かない。
+    if (viewModeRef.current === 'number') {
+      const hasCellData = !(value === undefined || value === null || value === '-');
+      if (!hasCellData) return;
+    }
     setSelectedCell({ value, rowData: row, field });
     setSelectedFlag(null);
     setselectedCellUrl(null);
@@ -727,6 +732,49 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     }
     return [];
   }, []);
+
+  /**
+   * 過去日付の機種別モーダルで「その日に実データがある台」かを判定する。
+   * @param snapshot 対象台のスナップショット
+   * @param historyRows 大当り履歴行
+   * @param historyCount 大当り履歴件数
+   */
+  const hasPastDateSnapshotData = useCallback(
+    (
+      snapshot: TodaySnapshotItem | null | undefined,
+      historyRows: TodayOatariHistoryRow[],
+      historyCount: number | null | undefined
+    ): boolean => {
+      const hasDisplayableValue = (value: unknown): boolean => {
+        if (value === null || value === undefined) return false;
+        if (typeof value === 'number') return Number.isFinite(value);
+        if (typeof value === 'string') {
+          const trimmed = value.trim();
+          if (!trimmed) return false;
+          if (trimmed === '--' || trimmed === '-') return false;
+          return true;
+        }
+        return false;
+      };
+
+      const countNumber = typeof historyCount === 'number' ? historyCount : Number(historyCount);
+      const hasHistory = (Number.isFinite(countNumber) && countNumber > 0) || (historyRows?.length ?? 0) > 0;
+
+      const hasMetricData = [
+        snapshot?.totalGameCount,
+        snapshot?.bbCount,
+        snapshot?.rbCount,
+        snapshot?.artCount,
+        snapshot?.combinedProbability,
+        snapshot?.bbProbability,
+        snapshot?.rbProbability,
+        snapshot?.highestPayout,
+      ].some((value) => hasDisplayableValue(value));
+
+      return hasHistory || hasMetricData;
+    },
+    []
+  );
 
   useEffect(() => {
     const reqId = ++flagModalDetailReqRef.current;
@@ -781,15 +829,14 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
           const targetCanonicalName = resolveDisplayName(
             String(selectedCell?.rowData?.name ?? selectedCell?.rowData?.modelName ?? '')
           );
+          const dayRawMap = rawMapRef.current?.[dateField] ?? {};
           const modelMachineKeys = Array.from(
             new Set(
-              (numberRowDataRef.current ?? [])
-                .filter((row: any) => !row?.isTotalRow)
-                .filter(
-                  (row: any) =>
-                    resolveDisplayName(String(row?.name ?? row?.modelName ?? '')) === targetCanonicalName
-                )
-                .map((row: any) => String(row?.machineNumber ?? '').trim())
+              Object.values(dayRawMap as Record<string, any>)
+                // 機種別平均差枚の計算対象（その日 diff が数値）だけを対象にする。
+                .filter((item: any) => typeof item?.diff === 'number' && Number.isFinite(item.diff))
+                .filter((item: any) => resolveDisplayName(String(item?.name ?? item?.modelName ?? '')) === targetCanonicalName)
+                .map((item: any) => String(item?.machineNumber ?? '').trim())
                 .filter((v: string) => !!v)
             )
           ).sort((a, b) => {
@@ -816,7 +863,19 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
 
           if (reqId !== flagModalDetailReqRef.current) return;
           setFlagModalDetailGalleryItems(
-            results.filter((v): v is { machineKey: string; snapshot: TodaySnapshotItem; historyRows: TodayOatariHistoryRow[]; historyCount: number } => !!v && !!v.snapshot?.graphImageUrl)
+            results.filter(
+              (
+                v
+              ): v is {
+                machineKey: string;
+                snapshot: TodaySnapshotItem;
+                historyRows: TodayOatariHistoryRow[];
+                historyCount: number;
+              } =>
+                !!v &&
+                !!String(v.snapshot?.graphImageUrl ?? '').trim() &&
+                hasPastDateSnapshotData(v.snapshot, v.historyRows, v.historyCount)
+            )
           );
           return;
         }
@@ -849,7 +908,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     };
 
     void loadDetail();
-  }, [flagModalEffectiveMode, modalOpen, resolveDisplayName, selectedCell, storeId]);
+  }, [flagModalEffectiveMode, hasPastDateSnapshotData, modalOpen, resolveDisplayName, selectedCell, storeId]);
 
   const loadTodayOatariHistory = useCallback(async (machineKey: string, snapshot: TodaySnapshotItem) => {
     const reqId = ++todayOatariHistoryReqRef.current;
