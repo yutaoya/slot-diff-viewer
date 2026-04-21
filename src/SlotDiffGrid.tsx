@@ -1,4 +1,4 @@
-﻿// src/components/SlotDiffGrid.tsx
+// src/components/SlotDiffGrid.tsx
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import {
@@ -21,18 +21,45 @@ import { fetchSlotDiffs } from './dataFetcher';
 import { transformToGridData, transformToGroupedGridData, transformToTailGridData } from './dataTransformer';
 
 // UI
-import { Input, Modal, Radio } from 'antd';
-import { doc, updateDoc, getDoc, getFirestore, FieldPath, writeBatch, collection, getDocs, query, where } from 'firebase/firestore';
-import { db } from './firebase';
-import { FormControl, MenuItem, Select, Switch } from '@mui/material';
-import { styled } from '@mui/material/styles';
+import { Modal } from 'antd';
+import { FormControl, MenuItem, Select } from '@mui/material';
 import { SelectChangeEvent } from '@mui/material/Select';
 import Box from '@mui/material/Box';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
 import { Button } from '@mui/material';
-import ExcelJS from 'exceljs';
-import { saveAs } from 'file-saver';
+import {
+  type DisplayMetric,
+  applyGroupedDateMetricCells,
+  applyTodayDiffToGroupedRows,
+  applyTodayDiffToRows,
+  applyTodayDiffToTailRows,
+  buildGroupedColumnsForDates,
+  buildNumberColumns,
+  buildTailColumnsForDates,
+  getPastDates,
+  mergeRowData,
+  parseGroupedMetricCell,
+  pickEffectiveLatestDate,
+  sortByLatestMissing,
+  sortByMachineNumber,
+} from './features/slotDiffGrid/gridUtils';
+import type { GridUiStateSnapshot, TodayGalleryItem, TodayOatariHistoryRow, TodaySnapshotItem, ViewMode } from './features/slotDiffGrid/types';
+import { Android12LineSpacingSwitch } from './features/slotDiffGrid/Android12LineSpacingSwitch';
+import { buildTodayGalleryStats } from './features/slotDiffGrid/todayGalleryStats';
+import { exportVisibleGridToXlsx } from './features/slotDiffGrid/gridExportUtils';
+import {
+  fetchNameCombineMap,
+  fetchSnapshotDetailFromOatariSubcollection,
+  fetchOatariHistorySubcollection,
+  fetchSlotDiffDateData,
+  fetchTodaySnapshotDetailMap,
+  fetchTooltipMapsByStoreId,
+  updateModelModeFlagsAndComment,
+  updateNumberModeFlagsAndComment,
+} from './features/slotDiffGrid/slotDiffRepository';
+import { FlagSettingModal } from './features/slotDiffGrid/components/FlagSettingModal';
+import { MachineDataModal } from './features/slotDiffGrid/components/MachineDataModal';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -43,97 +70,6 @@ ModuleRegistry.registerModules([ClientSideRowModelModule, RowStyleModule, CellSt
 interface Props {
   storeId: string;
 }
-
-type ViewMode = 'number' | 'model' | 'tail'; // 台番別 / 機種別（平均）/ 末尾別
-type DisplayMetric = 'diff' | 'games'; // 差枚 / 回転数
-
-type TodayOatariHistoryRow = {
-  count?: string;
-  kind?: string;
-  time?: string;
-  game?: string;
-  payout?: string;
-  isArtOrRt?: boolean;
-};
-
-type TodaySnapshotItem = {
-  machineNumber?: number | string;
-  name?: string;
-  currentDifference?: number | string;
-  currentUrl?: string;
-  graphImageUrl?: string;
-  dataUpdatedAt?: string;
-  scrapedAt?: string;
-  totalGameCount?: string;
-  bbCount?: string;
-  rbCount?: string;
-  artCount?: string;
-  highestPayout?: string;
-  bbProbability?: string;
-  rbProbability?: string;
-  combinedProbability?: string;
-  rateLabel?: string;
-  oatariHistoryStorage?: string;
-  oatariHistory?: TodayOatariHistoryRow[]; // 旧形式フォールバック
-};
-
-type GridUiStateSnapshot = {
-  columnState?: any[];
-  scrollTop?: number;
-  scrollLeft?: number;
-};
-
-const formatLineSpacingThumbIcon = encodeURIComponent(
-  "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='#ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M7 6h12M7 12h12M7 18h12M3 4v16M3 8l-2-2 2-2M3 16l-2 2 2 2'/></svg>"
-);
-
-const Android12LineSpacingSwitch = styled(Switch)(() => ({
-  width: 56,
-  height: 32,
-  padding: 0,
-  '& .MuiSwitch-switchBase': {
-    margin: 4,
-    padding: 0,
-    transform: 'translateX(0px)',
-    '&.Mui-checked': {
-      transform: 'translateX(24px)',
-      color: '#fff',
-      '& .MuiSwitch-thumb': {
-        backgroundColor: '#2e7d32',
-      },
-      '& + .MuiSwitch-track': {
-        backgroundColor: '#81c784',
-        opacity: 1,
-      },
-    },
-    '&.Mui-disabled + .MuiSwitch-track': {
-      opacity: 0.45,
-    },
-  },
-  '& .MuiSwitch-thumb': {
-    width: 24,
-    height: 24,
-    boxSizing: 'border-box',
-    boxShadow: 'none',
-    backgroundColor: '#9e9e9e',
-    position: 'relative',
-    '&::before': {
-      content: '""',
-      display: 'block',
-      position: 'absolute',
-      inset: 0,
-      backgroundRepeat: 'no-repeat',
-      backgroundPosition: 'center',
-      backgroundSize: '16px 16px',
-      backgroundImage: `url("data:image/svg+xml;utf8,${formatLineSpacingThumbIcon}")`,
-    },
-  },
-  '& .MuiSwitch-track': {
-    borderRadius: 16,
-    backgroundColor: '#c5c5c5',
-    opacity: 1,
-  },
-}));
 
 export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const [columnDefs, setColumnDefs] = useState<ColDef[]>([]);
@@ -169,15 +105,29 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const [selectedComment, setSelectedComment] = useState('');
   const [selectedCellUrl, setselectedCellUrl] = useState<string | null>(null);
   const [selectedRowId, setSelectedRowId] = useState<string | number | null>(null);
+  const [flagModalModeOverride, setFlagModalModeOverride] = useState<ViewMode | null>(null);
+  const [flagModalSaving, setFlagModalSaving] = useState(false);
+  const [flagModalDetailSnapshot, setFlagModalDetailSnapshot] = useState<TodaySnapshotItem | null>(null);
+  const [flagModalDetailDateKey, setFlagModalDetailDateKey] = useState('');
+  const [flagModalDetailHistoryRows, setFlagModalDetailHistoryRows] = useState<TodayOatariHistoryRow[]>([]);
+  const [flagModalDetailHistoryLoading, setFlagModalDetailHistoryLoading] = useState(false);
+  const [flagModalDetailHistoryCount, setFlagModalDetailHistoryCount] = useState<number | null>(null);
+  const [flagModalDetailGalleryItems, setFlagModalDetailGalleryItems] = useState<
+    Array<{ machineKey: string; snapshot: TodaySnapshotItem; historyRows: TodayOatariHistoryRow[]; historyCount: number }>
+  >([]);
+  const [flagModalReturnContext, setFlagModalReturnContext] = useState<{
+    selectedCell: { rowData: any; field: string; value: any };
+    selectedCellUrl: string | null;
+    machineKeys: string[];
+  } | null>(null);
+  const flagModalDetailReqRef = useRef(0);
   const [todayDetailModalOpen, setTodayDetailModalOpen] = useState(false);
   const [todayDetailItem, setTodayDetailItem] = useState<TodaySnapshotItem | null>(null);
   const [todayDetailMachineKey, setTodayDetailMachineKey] = useState<string | null>(null);
   const [todayDetailFromGallery, setTodayDetailFromGallery] = useState(false);
   const [todayGalleryModalOpen, setTodayGalleryModalOpen] = useState(false);
   const [todayGalleryTitle, setTodayGalleryTitle] = useState('');
-  const [todayGalleryItems, setTodayGalleryItems] = useState<
-    Array<{ machineKey: string; snapshot: TodaySnapshotItem }>
-  >([]);
+  const [todayGalleryItems, setTodayGalleryItems] = useState<TodayGalleryItem[]>([]);
   const [todayDetailAnimName, setTodayDetailAnimName] = useState<'none' | 'slideLeft' | 'slideRight'>('none');
   const [todayDetailAnimTick, setTodayDetailAnimTick] = useState(0);
   const [todaySwipeHintDx, setTodaySwipeHintDx] = useState(0);
@@ -204,8 +154,10 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const [hasTodayDiffData, setHasTodayDiffData] = useState(false);
   const [nameMapReady, setNameMapReady] = useState(false);
   const lastHorizontalScrollLeftRef = useRef(0);
+  // タブ/表示指標切替前後でソート・スクロール状態を引き継ぐためのスナップショット
   const gridUiStateByKeyRef = useRef<Record<string, GridUiStateSnapshot>>({});
   const pendingGridUiRestoreRef = useRef<GridUiStateSnapshot | null>(null);
+  const flagModalEffectiveMode: ViewMode = flagModalModeOverride ?? viewMode;
 
   const rowDataRef = useRef<any[]>([]);  // ★ 追加
   const pendingScrollRestoreRef = useRef<number | null>(null);
@@ -357,6 +309,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   }, []);
 
   const captureGridUiState = useCallback((mode: ViewMode, metric: DisplayMetric): GridUiStateSnapshot => {
+    // 現在の「列状態(ソート含む)」「縦/横スクロール位置」を保存
     const api = gridRef.current?.api as any;
     const snapshot: GridUiStateSnapshot = {
       columnState: typeof api?.getColumnState === 'function' ? api.getColumnState() : undefined,
@@ -372,6 +325,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     metric: DisplayMetric,
     fallback?: GridUiStateSnapshot
   ) => {
+    // 切替先キーに保存済み状態があればそれを優先し、なければ直前状態をフォールバック利用
     const key = buildGridUiStateKey(mode, metric);
     pendingGridUiRestoreRef.current = gridUiStateByKeyRef.current[key] ?? fallback ?? null;
   }, [buildGridUiStateKey]);
@@ -397,6 +351,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     }
 
     if (Array.isArray(pending.columnState) && pending.columnState.length > 0 && typeof api.applyColumnState === 'function') {
+      // 列状態を先に戻すことで、ソート/列順の再現を先に確定させる
       api.applyColumnState({
         state: pending.columnState,
         applyOrder: true,
@@ -471,35 +426,9 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     let cancelled = false;
     const loadTooltips = async () => {
       try {
-        const q = query(
-          collection(db, 'tooltips'),
-          where('storeId', '==', storeId)
-        );
-        const snapshot = await getDocs(q);
-        const map: Record<string, string> = {};
-        const textMap: Record<string, string> = {};
-        snapshot.forEach((docSnap) => {
-          const data = docSnap.data() as {
-            rows?: Array<{ machineNumber?: number | string; color?: string; text?: string }>;
-          };
-          const rows = Array.isArray(data?.rows) ? data.rows : [];
-
-          rows.forEach((row) => {
-            const machineNumber = row?.machineNumber;
-            const color = row?.color;
-            const text = row?.text;
-
-            if (machineNumber != null && typeof color === 'string' && color.trim() !== '') {
-              map[String(machineNumber)] = color;
-            }
-            if (machineNumber != null && typeof text === 'string' && text.trim() !== '') {
-              textMap[String(machineNumber)] = text;
-            }
-          });
-        });
-
+        const { colorMap, textMap } = await fetchTooltipMapsByStoreId(storeId);
         if (cancelled) return;
-        tooltipColorMapRef.current = map;
+        tooltipColorMapRef.current = colorMap;
         tooltipTextMapRef.current = textMap;
         gridRef.current?.api?.refreshCells({ force: true });
       } catch (error) {
@@ -518,32 +447,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     let cancelled = false;
     const loadNameCombineMap = async () => {
       try {
-        const snap = await getDoc(doc(db, 'config', 'namecCmbine'));
-        if (!snap.exists()) return;
-        const payload = snap.data() as any;
-        const source =
-          payload?.map && typeof payload.map === 'object' && !Array.isArray(payload.map)
-            ? payload.map
-            : {};
-
-        const next: Record<string, string> = {};
-        Object.entries(source as Record<string, unknown>).forEach(([canonicalName, aliases]) => {
-          const canonical = String(canonicalName ?? '').trim();
-          if (!canonical) return;
-          next[canonical] = canonical;
-          if (Array.isArray(aliases)) {
-            aliases.forEach((alias) => {
-              const key = String(alias ?? '').trim();
-              if (key) next[key] = canonical;
-            });
-            return;
-          }
-          if (typeof aliases === 'string') {
-            const key = aliases.trim();
-            if (key) next[key] = canonical;
-          }
-        });
-
+        const next = await fetchNameCombineMap();
         if (cancelled) return;
         nameCombineMapRef.current = next;
         gridRef.current?.api?.refreshCells({ force: true });
@@ -575,8 +479,8 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
         if (!cancelled) setTodayColumnHeader(nextHeader);
         const snapshotId = `${storeId}_${todayKey}`;
         todaySnapshotDocIdRef.current = snapshotId;
-        const snap = await getDoc(doc(db, 'site777Snapshots', snapshotId));
-        if (!snap.exists()) {
+        const snapshotResult = await fetchTodaySnapshotDetailMap(snapshotId);
+        if (!snapshotResult.exists) {
           if (!cancelled) {
             setTodayDiffMap({});
             setHasTodayDiffData(false);
@@ -586,21 +490,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
           return;
         }
 
-        const payload = snap.data() as { data?: Record<string, any>; oatariHistoryStorage?: string };
-        const entries = payload?.data ?? {};
-        const rootOatariHistoryStorage =
-          typeof payload?.oatariHistoryStorage === 'string' ? payload.oatariHistoryStorage : undefined;
-        const detailMap: Record<string, TodaySnapshotItem> = {};
-
-        Object.entries(entries).forEach(([key, item]) => {
-          const machineKey = String(item?.machineNumber ?? key);
-          const perMachineStorage =
-            typeof item?.oatariHistoryStorage === 'string' ? item.oatariHistoryStorage : undefined;
-          detailMap[machineKey] = {
-            ...(item as TodaySnapshotItem),
-            oatariHistoryStorage: perMachineStorage ?? rootOatariHistoryStorage,
-          };
-        });
+        const detailMap = snapshotResult.detailMap;
 
         if (!cancelled) {
           const nextMap = buildTodayMetricMapFromSnapshot(detailMap, displayMetricRef.current);
@@ -675,7 +565,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
       setselectedCellUrl(originalUrl);
 
       let initialComment = selectedCell?.rowData?.comments?.[selectedCell.field] ?? '';
-      if (viewMode === 'model') {
+      if (flagModalEffectiveMode === 'model') {
         const dateField = selectedCell.field;
         const targetCanonicalName = resolveDisplayName(
           String(selectedCell?.rowData?.name ?? selectedCell?.rowData?.modelName ?? '')
@@ -702,7 +592,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
       setSelectedComment(typeof initialComment === 'string' ? initialComment : String(initialComment ?? ''));
 
     }
-  }, [modalOpen, selectedCell, viewMode, resolveDisplayName]);
+  }, [flagModalEffectiveMode, modalOpen, selectedCell, resolveDisplayName]);
 
   useEffect(() => {
     rowDataRef.current = rowData;        // ★ 常に最新の rowData を保持
@@ -794,6 +684,9 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     setSelectedCell({ value, rowData: row, field });
     setSelectedFlag(null);
     setselectedCellUrl(null);
+    setFlagModalModeOverride(null);
+    setFlagModalDetailGalleryItems([]);
+    setFlagModalReturnContext(null);
     setModalOpen(true);
   }, []);
 
@@ -807,14 +700,18 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     return tooltipTextMapRef.current[String(machineNumber)];
   }, []);
 
-  const buildTodayGraphUrl = useCallback((item: TodaySnapshotItem | null | undefined) => {
+  const buildSnapshotGraphUrl = useCallback((item: TodaySnapshotItem | null | undefined, dateKey: string) => {
     const rawUrl = item?.graphImageUrl;
     if (!rawUrl) return '';
-    const version = item?.scrapedAt || item?.dataUpdatedAt || todaySnapshotDateKey || '';
+    const version = item?.scrapedAt || item?.dataUpdatedAt || dateKey || '';
     if (!version) return rawUrl;
     const sep = rawUrl.includes('?') ? '&' : '?';
     return `${rawUrl}${sep}v=${encodeURIComponent(version)}`;
-  }, [todaySnapshotDateKey]);
+  }, []);
+
+  const buildTodayGraphUrl = useCallback((item: TodaySnapshotItem | null | undefined) => {
+    return buildSnapshotGraphUrl(item, todaySnapshotDateKey);
+  }, [buildSnapshotGraphUrl, todaySnapshotDateKey]);
 
   const parseTodayOatariHistory = useCallback((raw: any): TodayOatariHistoryRow[] => {
     if (Array.isArray(raw)) {
@@ -831,6 +728,129 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     return [];
   }, []);
 
+  useEffect(() => {
+    const reqId = ++flagModalDetailReqRef.current;
+
+    const reset = () => {
+      setFlagModalDetailSnapshot(null);
+      setFlagModalDetailDateKey('');
+      setFlagModalDetailHistoryRows([]);
+      setFlagModalDetailHistoryCount(null);
+      setFlagModalDetailHistoryLoading(false);
+      setFlagModalDetailGalleryItems([]);
+    };
+
+    if (!modalOpen || !selectedCell) {
+      reset();
+      return;
+    }
+
+    const dateField = String(selectedCell.field ?? '');
+    if (!/^\d{8}$/.test(dateField)) {
+      reset();
+      return;
+    }
+
+    const candidateMachineKeys = Array.from(
+      new Set(
+        [
+          selectedCell?.rowData?.machineNumber != null ? String(selectedCell.rowData.machineNumber).trim() : '',
+          ...(Array.isArray(selectedCell?.rowData?.machineNumbers)
+            ? selectedCell.rowData.machineNumbers.map((v: any) => String(v).trim())
+            : []),
+        ].filter((v) => !!v)
+      )
+    );
+
+    if (candidateMachineKeys.length === 0) {
+      reset();
+      return;
+    }
+
+    setFlagModalDetailDateKey(dateField);
+    setFlagModalDetailSnapshot(null);
+    setFlagModalDetailHistoryRows([]);
+    setFlagModalDetailHistoryCount(null);
+    setFlagModalDetailGalleryItems([]);
+    setFlagModalDetailHistoryLoading(true);
+
+    const loadDetail = async () => {
+      try {
+        const snapshotId = `${storeId}_${dateField}`;
+        if (flagModalEffectiveMode === 'model') {
+          const targetCanonicalName = resolveDisplayName(
+            String(selectedCell?.rowData?.name ?? selectedCell?.rowData?.modelName ?? '')
+          );
+          const modelMachineKeys = Array.from(
+            new Set(
+              (numberRowDataRef.current ?? [])
+                .filter((row: any) => !row?.isTotalRow)
+                .filter(
+                  (row: any) =>
+                    resolveDisplayName(String(row?.name ?? row?.modelName ?? '')) === targetCanonicalName
+                )
+                .map((row: any) => String(row?.machineNumber ?? '').trim())
+                .filter((v: string) => !!v)
+            )
+          ).sort((a, b) => {
+            const ai = Number(a);
+            const bi = Number(b);
+            if (Number.isFinite(ai) && Number.isFinite(bi)) return ai - bi;
+            return a.localeCompare(b, 'ja');
+          });
+
+          if (modelMachineKeys.length === 0) return;
+
+          const results = await Promise.all(
+            modelMachineKeys.map(async (machineKey) => {
+              const result = await fetchSnapshotDetailFromOatariSubcollection(snapshotId, machineKey);
+              if (!result.exists || !result.snapshot) return null;
+              return {
+                machineKey,
+                snapshot: result.snapshot,
+                historyRows: result.rows,
+                historyCount: result.count ?? result.rows.length,
+              };
+            })
+          );
+
+          if (reqId !== flagModalDetailReqRef.current) return;
+          setFlagModalDetailGalleryItems(
+            results.filter((v): v is { machineKey: string; snapshot: TodaySnapshotItem; historyRows: TodayOatariHistoryRow[]; historyCount: number } => !!v && !!v.snapshot?.graphImageUrl)
+          );
+          return;
+        }
+
+        // 取得件数を抑えるため、過去日付の台番別詳細は
+        // oatariHistories/{machineNumber} の単一ドキュメントのみ読む。
+        const machineKey = candidateMachineKeys[0];
+        if (!machineKey) return;
+
+        const detailResult = await fetchSnapshotDetailFromOatariSubcollection(snapshotId, machineKey);
+        if (reqId !== flagModalDetailReqRef.current) return;
+        if (!detailResult.exists || !detailResult.snapshot) return;
+
+        setFlagModalDetailSnapshot(detailResult.snapshot);
+        setFlagModalDetailHistoryRows(detailResult.rows);
+        setFlagModalDetailHistoryCount(detailResult.count ?? detailResult.rows.length);
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.error('Failed to load past-date snapshot detail:', error);
+        if (reqId !== flagModalDetailReqRef.current) return;
+        setFlagModalDetailSnapshot(null);
+        setFlagModalDetailHistoryRows([]);
+        setFlagModalDetailHistoryCount(0);
+        setFlagModalDetailGalleryItems([]);
+      } finally {
+        if (reqId === flagModalDetailReqRef.current) {
+          setFlagModalDetailHistoryLoading(false);
+        }
+      }
+    };
+
+    void loadDetail();
+  }, [flagModalEffectiveMode, modalOpen, resolveDisplayName, selectedCell, storeId]);
+
   const loadTodayOatariHistory = useCallback(async (machineKey: string, snapshot: TodaySnapshotItem) => {
     const reqId = ++todayOatariHistoryReqRef.current;
     setTodayOatariHistoryLoading(true);
@@ -844,22 +864,14 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
       const snapshotDocId = todaySnapshotDocIdRef.current;
       const trySubcollectionFirst = !!snapshotDocId && (useSubcollection || isStorageUnset);
       if (trySubcollectionFirst) {
-        const ref = doc(db, 'site777Snapshots', snapshotDocId, 'oatariHistories', machineKey);
-        const histSnap = await getDoc(ref);
+        const result = await fetchOatariHistorySubcollection(snapshotDocId, machineKey);
         if (reqId !== todayOatariHistoryReqRef.current) return;
 
-        if (!histSnap.exists()) {
+        if (!result.exists) {
           // subcollection 未作成時は旧形式にフォールバック
         } else {
-          const data = histSnap.data() as {
-            oatariHistoryJson?: unknown;
-            oatariHistoryCount?: number | string;
-          };
-          const rows = parseTodayOatariHistory(data?.oatariHistoryJson);
-          const countRaw = data?.oatariHistoryCount;
-          const count = typeof countRaw === 'number' ? countRaw : Number(countRaw);
-          setTodayOatariHistoryRows(rows);
-          setTodayOatariHistoryCount(Number.isFinite(count) ? count : rows.length);
+          setTodayOatariHistoryRows(result.rows);
+          setTodayOatariHistoryCount(result.count ?? result.rows.length);
           return;
         }
       }
@@ -1346,6 +1358,7 @@ const loadDates = async (dates: string[]) => {
   const tabValue = viewMode === 'number' ? 0 : viewMode === 'model' ? 1 : 2;
   const groupedRowNeedsExtraHeight = viewMode === 'model' && displayMetric === 'diff' && showGroupedWinStats;
   const currentGridRowHeight = viewMode === 'tail' || groupedRowNeedsExtraHeight ? 34 : 22;
+  // 再マウントは「勝率表示スイッチの手動切替時」のみに限定する
   const gridRenderKey = `win-stats-remount-${gridRemountNonce}`;
   const applyCurrentRowHeight = useCallback(() => {
     const api = gridRef.current?.api as any;
@@ -1382,250 +1395,353 @@ const loadDates = async (dates: string[]) => {
     applyCurrentRowHeight();
   }, [showGroupedWinStats, displayMetric, viewMode, applyCurrentRowHeight]);
 
-  const todayGalleryStats = useMemo(() => {
-    const parseNumeric = (value: unknown): number | null => {
-      if (typeof value === 'number' && Number.isFinite(value)) return value;
-      if (typeof value !== 'string') return null;
-      const digits = value.replace(/[^0-9.-]/g, '');
-      if (!digits) return null;
-      const n = Number(digits);
-      return Number.isFinite(n) ? n : null;
-    };
-
-    const parseCombinedDenominator = (value: unknown): number | null => {
-      if (typeof value !== 'string') return null;
-      const m = value.match(/1\s*\/\s*(\d+)/);
-      if (!m) return null;
-      const n = Number(m[1]);
-      return Number.isFinite(n) ? n : null;
-    };
-
-    const rows = todayGalleryItems.map(({ machineKey, snapshot }) => ({
-      machineKey: String(machineKey),
-      machineNumber: String(snapshot?.machineNumber ?? machineKey),
-      totalGame: parseNumeric(snapshot?.totalGameCount),
-      bbCount: parseNumeric(snapshot?.bbCount),
-      rbCount: parseNumeric(snapshot?.rbCount),
-      combined: parseCombinedDenominator(snapshot?.combinedProbability),
-      artCount: parseNumeric(snapshot?.artCount),
-    }));
-
-    const avgOf = (arr: Array<number | null>) => {
-      const nums = arr.filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
-      if (nums.length === 0) return null;
-      return Math.round(nums.reduce((sum, v) => sum + v, 0) / nums.length);
-    };
-
-    const avgTotalGame = avgOf(rows.map((r) => r.totalGame));
-    const avgBbCount = avgOf(rows.map((r) => r.bbCount));
-    const avgRbCount = avgOf(rows.map((r) => r.rbCount));
-    const avgCombined =
-      avgTotalGame != null && avgBbCount != null && avgRbCount != null && (avgBbCount + avgRbCount) > 0
-        ? Math.floor(avgTotalGame / (avgBbCount + avgRbCount))
-        : avgOf(rows.map((r) => r.combined));
-
-    const avgRow = {
-      machineNumber: '平均',
-      totalGame: avgTotalGame,
-      bbCount: avgBbCount,
-      rbCount: avgRbCount,
-      combined: avgCombined,
-      artCount: avgOf(rows.map((r) => r.artCount)),
-    };
-
-    return { rows, avgRow };
-  }, [todayGalleryItems]);
-
-  // ===== CSVユーティリティ（api不使用）ここから =====
-  const escapeCsv = (val: any): string => {
-    if (val == null) return '';
-    const s = String(val);
-    return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-  };
-
-  // columnDefs から「表示カラム」のみを順序通りに取得
-  const pickVisibleColDefs = (colDefs: any[]) => {
-    const flat = (defs: any[], acc: any[] = []): any[] =>
-      defs.reduce((a, d) => {
-        if (Array.isArray(d.children) && d.children.length) return flat(d.children, a);
-        a.push(d);
-        return a;
-      }, acc);
-
-    const defs = flat(colDefs ?? []);
-    // 非表示/グループ/ピボットなどは除外（必要に応じて調整）
-    return defs.filter((d) => d && d.hide !== true && !d.rowGroup && !d.pivot);
-  };
-
-  // valueGetter → field → colId の順で値を取り、valueFormatter があれば適用
-  const getCellValueFromDef = (def: any, row: any): any => {
-    // valueGetter (function) を評価
-    if (typeof def?.valueGetter === 'function') {
-      try {
-        const params = {
-          data: row,
-          colDef: def,
-          // 最低限の getValue を提供（別フィールド参照用）
-          getValue: (field: string) => (row ? row[field] : undefined),
-        };
-        return def.valueGetter(params);
-      } catch { /* ignore */ }
-    }
-    // field
-    if (def?.field) return row ? row[def.field] : undefined;
-    // colId をフォールバックキーに
-    if (def?.colId) return row ? row[def.colId] : undefined;
-    return undefined;
-  };
-
-  const applyValueFormatterFromDef = (def: any, row: any, value: any) => {
-    if (typeof def?.valueFormatter === 'function') {
-      try {
-        const params = { value, data: row, colDef: def };
-        return def.valueFormatter(params);
-      } catch { /* ignore */ }
-    }
-    return value;
-  };
-
-  // rows: 画面に渡している配列（フィルタ/ソート後のもの）
-  // colDefs: 実際に <AgGridReact columnDefs={...} /> に渡している配列
-  const buildCsvFromProps = (rows: any[], colDefs: any[]): string => {
-    const visibleDefs = pickVisibleColDefs(colDefs);
-    const headers = visibleDefs.map(
-      (d) => d.headerName ?? d.field ?? d.colId ?? ''
-    );
-
-    const lines: string[] = [];
-    lines.push(headers.map(escapeCsv).join(','));
-
-    (rows ?? []).forEach((row) => {
-      const vals = visibleDefs.map((def) => {
-        const raw = getCellValueFromDef(def, row);
-        const formatted = applyValueFormatterFromDef(def, row, raw);
-        return escapeCsv(formatted);
-      });
-      lines.push(vals.join(','));
-    });
-
-    return lines.join('\r\n');
-  };
-
-  const downloadCsv = (csv: string, baseName = 'export') => {
-    const bom = '\uFEFF'; // Excel 文字化け対策
-    const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8;' });
-    const filename = `${baseName}.csv`;
-    if ((window.navigator as any).msSaveOrOpenBlob) {
-      (window.navigator as any).msSaveOrOpenBlob(blob, filename);
-    } else {
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    }
-  };
-  // ===== CSVユーティリティここまで =====
-
-  // 例: これをクリックで呼ぶ（rowData と columnDefs はこのコンポーネント内に既にある想定）
-  const handleExportCsv = () => {
-    // ★ 重要：ここに「実際に <AgGridReact rowData={...}> に渡している配列」を入れてください。
-    // 例）rowData が既にフィルタ/ソート後の配列ならそのまま使えます。
-    const rowsForGrid = rowData;              // ← あなたの変数名に合わせて置換
-    const colDefsForGrid = columnDefs;        // ← あなたの変数名に合わせて置換
-
-    const csv = buildCsvFromProps(rowsForGrid, colDefsForGrid);
-    downloadCsv(csv, `slot-diff_${new Date().toISOString().slice(0,10)}`);
-  };
+  // ギャラリー内の平均行計算は純粋関数へ分離。
+  const todayGalleryStats = useMemo(() => buildTodayGalleryStats(todayGalleryItems), [todayGalleryItems]);
+  const flagModalGalleryStats = useMemo(
+    () =>
+      buildTodayGalleryStats(
+        (flagModalDetailGalleryItems ?? []).map(({ machineKey, snapshot }) => ({
+          machineKey,
+          snapshot,
+        }))
+      ),
+    [flagModalDetailGalleryItems]
+  );
 
   const handleExportXlsx = async () => {
     if (!window.confirm('表示データのExcelファイルを出力します。よろしいですか？')) return;
-  
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Sheet1');
-  
-    // ヘッダ行
-    const visibleDefs = columnDefs.filter((d: any) => !d.hide && !d.rowGroup && !d.pivot);
-    const headers = visibleDefs.map((d: any) => d.headerName ?? d.field ?? d.colId ?? '');
-    worksheet.addRow(headers);
-  
-    // データ行
-    rowData.forEach((row: any) => {
-      const rowVals = visibleDefs.map((def: any) => {
-        const val =
-          typeof def.valueGetter === 'function'
-            ? def.valueGetter({ data: row, colDef: def, getValue: (f: string) => row[f] })
-            : def.field
-            ? row[def.field]
-            : def.colId
-            ? row[def.colId]
-            : '';
-        return val;
-      });
-  
-      const addedRow = worksheet.addRow(rowVals);
-  
-      // 各セルの cellStyle を確認して背景色を適用
-      visibleDefs.forEach((def: any, i: number) => {
-        let bgColor: string | undefined;
-  
-        if (typeof def.cellStyle === 'object' && def.cellStyle.backgroundColor) {
-          bgColor = def.cellStyle.backgroundColor;
-        } else if (typeof def.cellStyle === 'function') {
-          try {
-            const styleObj = def.cellStyle({ value: row[def.field], data: row, colDef: def });
-            if (styleObj && styleObj.backgroundColor) {
-
-              if (styleObj.backgroundColor == "#FFBFC7") {
-                bgColor = "#FF0000";
-              }
-              else if (styleObj.backgroundColor == "#5bd799") {
-                bgColor = "#008000";
-              }
-              else if (styleObj.backgroundColor == "#D3B9DE") {
-                bgColor = "#5a4498";
-              }
-              else if (styleObj.backgroundColor == "#FFE899") {
-                bgColor = "#ffff00";
-              }
-              else {
-                bgColor = styleObj.backgroundColor;
-              }
-            }
-          } catch {
-            // ignore
-          }
-        }
-  
-        if (bgColor) {
-          // ExcelJSはARGB形式 (例: 'FFFF0000' → 赤)。CSS形式(#RRGGBB)を変換
-          const hex = bgColor.replace('#', '');
-          const argb =
-            hex.length === 6
-              ? `FF${hex.toUpperCase()}` // 先頭にアルファ値FFを追加
-              : hex.length === 8
-              ? hex.toUpperCase()
-              : undefined;
-  
-          if (argb) {
-            const cell = addedRow.getCell(i + 1);
-            cell.fill = {
-              type: 'pattern',
-              pattern: 'solid',
-              fgColor: { argb },
-            };
-          }
-        }
-      });
-    });
-  
-    // ダウンロード
-    const buffer = await workbook.xlsx.writeBuffer();
-    saveAs(new Blob([buffer]), `${storeId}_${dayjs().tz("Asia/Tokyo").format("YYYYMMDDHHmmss")}.xlsx`);
+    await exportVisibleGridToXlsx({ columnDefs, rowData, storeId });
   };
+
+  // 指定台番でフラグモーダルを台番別コンテキストへ切り替える。
+  const applyFlagModalNumberSelection = useCallback((machineKey: string, dateField: string) => {
+    const row = (numberRowDataRef.current ?? []).find(
+      (item: any) => !item?.isTotalRow && String(item?.machineNumber ?? '').trim() === machineKey
+    );
+    if (!row) return false;
+
+    const detail = flagModalDetailGalleryItems.find((item) => item.machineKey === machineKey);
+    setFlagModalModeOverride('number');
+    setSelectedCell({ value: row?.[dateField], rowData: row, field: dateField });
+    setSelectedFlag(null);
+    setselectedCellUrl(row?.urls?.[dateField] ?? null);
+    if (detail) {
+      setFlagModalDetailSnapshot(detail.snapshot);
+      setFlagModalDetailHistoryRows(detail.historyRows);
+      setFlagModalDetailHistoryCount(detail.historyCount);
+      setFlagModalDetailHistoryLoading(false);
+    }
+    return true;
+  }, [flagModalDetailGalleryItems]);
+
+  // 機種別グラフ一覧から台番を選択したとき、同日付の台番別モーダルへ切り替える。
+  const handleOpenNumberModalFromModelGallery = useCallback((machineKey: string) => {
+    if (!selectedCell) return;
+    const dateField = String(selectedCell.field ?? '');
+    if (!/^\d{8}$/.test(dateField)) return;
+
+    const machineKeys = Array.from(
+      new Set(
+        (flagModalDetailGalleryItems ?? [])
+          .map((item) => String(item.machineKey ?? '').trim())
+          .filter((v) => !!v)
+      )
+    );
+
+    if (flagModalEffectiveMode === 'model') {
+      setFlagModalReturnContext({
+        selectedCell: selectedCell as { rowData: any; field: string; value: any },
+        selectedCellUrl,
+        machineKeys,
+      });
+    }
+
+    void applyFlagModalNumberSelection(machineKey, dateField);
+  }, [
+    applyFlagModalNumberSelection,
+    flagModalDetailGalleryItems,
+    flagModalEffectiveMode,
+    selectedCell,
+    selectedCellUrl,
+  ]);
+
+  // 台番別フラグモーダルで次/前の台へ移動する。
+  const moveFlagModalMachine = useCallback((delta: number) => {
+    if (!modalOpen || flagModalEffectiveMode !== 'number') return;
+    const dateField = String(selectedCell?.field ?? '');
+    if (!/^\d{8}$/.test(dateField)) return;
+    const currentMachineKey = String(selectedCell?.rowData?.machineNumber ?? '').trim();
+    if (!currentMachineKey) return;
+
+    const contextOrder = flagModalReturnContext?.machineKeys ?? [];
+    const fallbackOrder = (numberRowDataRef.current ?? [])
+      .filter((row: any) => !row?.isTotalRow && row?.machineNumber != null)
+      .filter((row: any) => {
+        if (!selectedName) return true;
+        return (row?.name ?? row?.modelName) === selectedName;
+      })
+      .map((row: any) => String(row.machineNumber).trim())
+      .filter((v: string) => !!v);
+    const order = contextOrder.length > 0 ? contextOrder : fallbackOrder;
+    if (order.length <= 1) return;
+
+    const currentIndex = order.indexOf(currentMachineKey);
+    if (currentIndex < 0) return;
+    const nextIndex = currentIndex + delta;
+    if (nextIndex < 0 || nextIndex >= order.length) return;
+    const nextKey = order[nextIndex];
+    if (!nextKey) return;
+
+    void applyFlagModalNumberSelection(nextKey, dateField);
+  }, [
+    applyFlagModalNumberSelection,
+    flagModalEffectiveMode,
+    flagModalReturnContext,
+    modalOpen,
+    selectedCell,
+    selectedName,
+  ]);
+
+  const handleFlagModalSwipePrev = useCallback(() => {
+    moveFlagModalMachine(-1);
+  }, [moveFlagModalMachine]);
+
+  const handleFlagModalSwipeNext = useCallback(() => {
+    moveFlagModalMachine(1);
+  }, [moveFlagModalMachine]);
+
+  // フラグ編集モーダルを閉じる。
+  const handleCloseFlagModal = useCallback(() => {
+    // 機種別 -> 台番別へ遷移していた場合は、閉じる時に機種別へ戻す。
+    if (flagModalReturnContext && flagModalEffectiveMode === 'number') {
+      flagModalDetailReqRef.current += 1;
+      setFlagModalModeOverride('model');
+      setSelectedCell(flagModalReturnContext.selectedCell);
+      setSelectedFlag(null);
+      setselectedCellUrl(flagModalReturnContext.selectedCellUrl);
+      setFlagModalDetailSnapshot(null);
+      setFlagModalDetailDateKey(String(flagModalReturnContext.selectedCell?.field ?? ''));
+      setFlagModalDetailHistoryRows([]);
+      setFlagModalDetailHistoryCount(null);
+      setFlagModalDetailHistoryLoading(false);
+      setFlagModalReturnContext(null);
+      return;
+    }
+
+    flagModalDetailReqRef.current += 1;
+    setFlagModalModeOverride(null);
+    setModalOpen(false);
+    setSelectedComment('');
+    setFlagModalDetailSnapshot(null);
+    setFlagModalDetailDateKey('');
+    setFlagModalDetailHistoryRows([]);
+    setFlagModalDetailHistoryCount(null);
+    setFlagModalDetailHistoryLoading(false);
+    setFlagModalDetailGalleryItems([]);
+    setFlagModalReturnContext(null);
+  }, [flagModalEffectiveMode, flagModalReturnContext]);
+
+  // 選択セルのURLを使って「台データ」モーダルを開く。
+  const handleOpenMachineDataModal = useCallback(() => {
+    if (!selectedCellUrl) return;
+    setMachineUrl(selectedCellUrl);
+    setIsMachineModalOpen(true);
+  }, [selectedCellUrl]);
+
+  // 「台データ」モーダルを閉じる。
+  const handleCloseMachineDataModal = useCallback(() => {
+    setIsMachineModalOpen(false);
+    setMachineUrl(null);
+  }, []);
+
+  // フラグ編集モーダルのOK処理（Firestore更新 + ローカル状態反映）。
+  const handleFlagModalOk = useCallback(async () => {
+    if (!selectedCell || selectedFlag === null || flagModalSaving) return;
+    setFlagModalSaving(true);
+    try {
+      const scrollTopBeforeUpdate = getCurrentVerticalScrollTop();
+
+      const dateField = selectedCell.field;
+      const loadResult = await fetchSlotDiffDateData(storeId, dateField);
+      if (!loadResult.exists) return;
+
+      const data = loadResult.data;
+      const targetName = String(selectedCell.rowData.name ?? selectedCell.rowData.modelName ?? '');
+      const targetCanonicalName = resolveDisplayName(targetName);
+      const targetNumber = String(selectedCell.rowData.machineNumber ?? '');
+
+      const originalFlag = selectedCell?.rowData?.flag?.[dateField] ?? 0;
+      const commentValue = selectedComment ?? '';
+
+      // 台番別と機種別で分岐
+      if (flagModalEffectiveMode === 'model') {
+        // 機種別ではコメントは常に一括反映、flag は 9/0 選択時のみ反映する。
+        const shouldUpdateFlag = [9, 0].includes(selectedFlag);
+        const targetKeys: string[] = [];
+        Object.entries(data).forEach(([key, val]: [string, any]) => {
+          const canonical = resolveDisplayName(String(val?.name ?? ''));
+          if (canonical === targetCanonicalName) targetKeys.push(key);
+        });
+
+        if (targetKeys.length === 0) {
+          setModalOpen(false);
+          return;
+        }
+
+        await updateModelModeFlagsAndComment({
+          storeId,
+          dateField,
+          targetKeys,
+          selectedFlag,
+          commentValue,
+          shouldUpdateFlag,
+        });
+
+        // ローカル反映（台番別の元データ／現在表示データ／機種別行）
+        numberRowDataRef.current.forEach((row: any) => {
+          const canonical = resolveDisplayName(String(row?.name ?? row?.modelName ?? ''));
+          if (canonical !== targetCanonicalName) return;
+          if (!row.comments) row.comments = {};
+          if (shouldUpdateFlag) {
+            if (!row.flag) row.flag = {};
+            row.flag[dateField] = selectedFlag;
+          }
+          row.comments[dateField] = commentValue;
+        });
+        rowDataRef.current.forEach((row: any) => {
+          const canonical = resolveDisplayName(String(row?.name ?? row?.modelName ?? ''));
+          if (canonical !== targetCanonicalName) return;
+          if (!row.comments) row.comments = {};
+          if (shouldUpdateFlag) {
+            if (!row.flag) row.flag = {};
+            row.flag[dateField] = selectedFlag;
+          }
+          row.comments[dateField] = commentValue;
+        });
+        pendingScrollRestoreRef.current = scrollTopBeforeUpdate;
+        setRowData((prev) =>
+          prev.map((r: any) => {
+            const nm = resolveDisplayName(String(r?.name ?? r?.modelName ?? ''));
+            if (nm !== targetCanonicalName) return r;
+            const next = { ...r, comments: { ...(r.comments ?? {}) } } as any;
+            if (shouldUpdateFlag) {
+              next.flag = { ...(r.flag ?? {}) };
+              next.flag[dateField] = selectedFlag;
+            }
+            next.comments[dateField] = commentValue;
+            return next;
+          })
+        );
+
+        setModalOpen(false);
+        setFlagModalReturnContext(null);
+        setSelectedComment('');
+        gridRef.current?.api?.refreshCells({ force: true });
+        return;
+      }
+
+      // ここから先は従来の台番別ロジック。
+      const targetKeys: string[] = [];
+      if (originalFlag === 9 && selectedFlag === 0) {
+        Object.entries(data).forEach(([key, val]: [string, any]) => {
+          const canonical = resolveDisplayName(String(val?.name ?? ''));
+          if (canonical === targetCanonicalName) targetKeys.push(key);
+        });
+      } else if (selectedFlag === 9) {
+        Object.entries(data).forEach(([key, val]: [string, any]) => {
+          const canonical = resolveDisplayName(String(val?.name ?? ''));
+          if (canonical === targetCanonicalName) targetKeys.push(key);
+        });
+      } else {
+        Object.entries(data).forEach(([key, val]: [string, any]) => {
+          const canonical = resolveDisplayName(String(val?.name ?? ''));
+          if (canonical === targetCanonicalName && String(val?.machineNumber ?? '') === targetNumber) {
+            targetKeys.push(key);
+          }
+        });
+      }
+
+      await updateNumberModeFlagsAndComment({
+        storeId,
+        dateField,
+        targetKeys,
+        selectedFlag,
+        commentValue,
+      });
+
+      setModalOpen(false);
+      setFlagModalReturnContext(null);
+      setSelectedComment('');
+
+      const api = gridRef.current?.api;
+      if (!api) return;
+      const field = dateField;
+      pendingScrollRestoreRef.current = scrollTopBeforeUpdate;
+
+      rowDataRef.current.forEach((row: any) => {
+        if (!row.flag) row.flag = {};
+        if (!row.comments) row.comments = {};
+        const canonical = resolveDisplayName(String(row?.name ?? row?.modelName ?? ''));
+        const rowNumber = String(row?.machineNumber ?? '');
+        if (originalFlag === 9 && selectedFlag === 0 && canonical === targetCanonicalName) {
+          row.flag[field] = 0;
+          row.comments[field] = commentValue;
+        } else if (selectedFlag === 9 && canonical === targetCanonicalName) {
+          row.flag[field] = 9;
+          row.comments[field] = commentValue;
+        } else if (canonical === targetCanonicalName && rowNumber === targetNumber) {
+          row.flag[field] = selectedFlag;
+          row.comments[field] = commentValue;
+        }
+      });
+
+      numberRowDataRef.current.forEach((row: any) => {
+        if (!row.flag) row.flag = {};
+        if (!row.comments) row.comments = {};
+        const canonical = resolveDisplayName(String(row?.name ?? row?.modelName ?? ''));
+        const rowNumber = String(row?.machineNumber ?? '');
+        if (originalFlag === 9 && selectedFlag === 0 && canonical === targetCanonicalName) {
+          row.flag[field] = 0;
+          row.comments[field] = commentValue;
+        } else if (selectedFlag === 9 && canonical === targetCanonicalName) {
+          row.flag[field] = 9;
+          row.comments[field] = commentValue;
+        } else if (canonical === targetCanonicalName && rowNumber === targetNumber) {
+          row.flag[field] = selectedFlag;
+          row.comments[field] = commentValue;
+        }
+      });
+
+      setRowData((prev) =>
+        prev.map((row: any) => {
+          const canonical = resolveDisplayName(String(row?.name ?? row?.modelName ?? ''));
+          const rowNumber = String(row?.machineNumber ?? '');
+          const shouldUpdate =
+            (originalFlag === 9 && selectedFlag === 0 && canonical === targetCanonicalName) ||
+            (selectedFlag === 9 && canonical === targetCanonicalName) ||
+            (canonical === targetCanonicalName && rowNumber === targetNumber);
+          if (!shouldUpdate) return row;
+          const next = { ...row, flag: { ...(row.flag ?? {}) }, comments: { ...(row.comments ?? {}) } };
+          next.flag[field] = selectedFlag;
+          next.comments[field] = commentValue;
+          return next;
+        })
+      );
+
+      api.refreshCells({ force: true });
+    } finally {
+      setFlagModalSaving(false);
+    }
+  }, [
+    flagModalSaving,
+    getCurrentVerticalScrollTop,
+    resolveDisplayName,
+    selectedCell,
+    selectedComment,
+    selectedFlag,
+    storeId,
+    flagModalEffectiveMode,
+  ]);
 
   return (
     <>
@@ -2084,9 +2200,9 @@ const loadDates = async (dates: string[]) => {
         title={todayGalleryTitle || ''}
         open={todayGalleryModalOpen}
         onCancel={() => {
+          // ギャラリー -> 詳細の遷移中に onCancel が走っても内容を失わないよう、
+          // 閉じる時は open 状態のみ更新し、items/title は維持する。
           setTodayGalleryModalOpen(false);
-          setTodayGalleryTitle('');
-          setTodayGalleryItems([]);
         }}
         destroyOnClose
         footer={null}
@@ -2198,1306 +2314,31 @@ const loadDates = async (dates: string[]) => {
         )}
       </Modal>
 
-      {/* モーダル（台番別のみ） */}
-      <Modal
+      <FlagSettingModal
         open={modalOpen}
-        onCancel={() => {
-          setModalOpen(false);
-          setSelectedComment('');
-        }}
-        onOk={async () => {
-          if (!selectedCell || selectedFlag === null) return;
-          const scrollTopBeforeUpdate = getCurrentVerticalScrollTop();
-
-          const dateField = selectedCell.field; // YYYYMMDD
-          const db = getFirestore();
-          const ref = doc(db, 'slot_diff', `${storeId}_${dateField}`);
-          const snap = await getDoc(ref);
-          if (!snap.exists()) return;
-
-          const data = snap.data().data;
-          const targetName = String(selectedCell.rowData.name ?? selectedCell.rowData.modelName ?? '');
-          const targetCanonicalName = resolveDisplayName(targetName);
-          const targetNumber = String(selectedCell.rowData.machineNumber ?? '');
-
-          const originalFlag = selectedCell?.rowData?.flag?.[dateField] ?? 0;
-          const commentValue = selectedComment ?? '';
-
-          // 台番別と機種別で分岐
-          if (viewMode === 'model') {
-            // ★ 機種別：コメントは常に全台へ反映。flag は 9/0 のときのみ一括更新
-            const shouldUpdateFlag = [9, 0].includes(selectedFlag);
-
-            const targetKeys: string[] = [];
-            Object.entries(data).forEach(([key, val]: [string, any]) => {
-              const canonical = resolveDisplayName(String(val?.name ?? ''));
-              if (canonical === targetCanonicalName) {
-                targetKeys.push(key);
-              }
-            });
-
-            if (targetKeys.length === 0) {
-              setModalOpen(false);
-              return;
-            }
-
-            if (targetKeys.length === 1) {
-              const key = targetKeys[0];
-              if (shouldUpdateFlag) {
-                await updateDoc(
-                  ref,
-                  new FieldPath('data', key, 'flag'),
-                  selectedFlag,
-                  new FieldPath('data', key, 'comment'),
-                  commentValue
-                );
-              } else {
-                await updateDoc(
-                  ref,
-                  new FieldPath('data', key, 'comment'),
-                  commentValue
-                );
-              }
-            } else {
-              const batch = writeBatch(db);
-              targetKeys.forEach((key) => {
-                if (shouldUpdateFlag) {
-                  batch.update(
-                    ref,
-                    new FieldPath('data', key, 'flag'),
-                    selectedFlag,
-                    new FieldPath('data', key, 'comment'),
-                    commentValue
-                  );
-                } else {
-                  batch.update(
-                    ref,
-                    new FieldPath('data', key, 'comment'),
-                    commentValue
-                  );
-                }
-              });
-              await batch.commit();
-            }
-
-            // ローカル反映（台番別の元データ／現在表示データ／機種別行）
-            numberRowDataRef.current.forEach((row: any) => {
-              const canonical = resolveDisplayName(String(row?.name ?? row?.modelName ?? ''));
-              if (canonical !== targetCanonicalName) return;
-              if (!row.comments) row.comments = {};
-              if (shouldUpdateFlag) {
-                if (!row.flag) row.flag = {};
-                row.flag[dateField] = selectedFlag;
-              }
-              row.comments[dateField] = commentValue;
-            });
-            rowDataRef.current.forEach((row: any) => {
-              const canonical = resolveDisplayName(String(row?.name ?? row?.modelName ?? ''));
-              if (canonical !== targetCanonicalName) return;
-              if (!row.comments) row.comments = {};
-              if (shouldUpdateFlag) {
-                if (!row.flag) row.flag = {};
-                row.flag[dateField] = selectedFlag;
-              }
-              row.comments[dateField] = commentValue;
-            });
-            pendingScrollRestoreRef.current = scrollTopBeforeUpdate;
-            setRowData(prev =>
-              prev.map((r: any) => {
-                const nm = resolveDisplayName(String(r?.name ?? r?.modelName ?? ''));
-                if (nm !== targetCanonicalName) return r;
-                const next = { ...r, comments: { ...(r.comments ?? {}) } } as any;
-                if (shouldUpdateFlag) {
-                  next.flag = { ...(r.flag ?? {}) };
-                  next.flag[dateField] = selectedFlag;
-                }
-                next.comments[dateField] = commentValue;
-                return next;
-              })
-            );
-
-            setModalOpen(false);
-            setSelectedComment('');
-            gridRef.current?.api?.refreshCells({ force: true });
-            return;
-          }
-
-          // ★ ここから先は従来の「台番別」ロジック（既存と同等）
-          const targetKeys: string[] = [];
-
-          // 1) 全台系 → フラグ解除（同機種すべて 0）
-          if (originalFlag === 9 && selectedFlag === 0) {
-            Object.entries(data).forEach(([key, val]: [string, any]) => {
-              const canonical = resolveDisplayName(String(val?.name ?? ''));
-              if (canonical === targetCanonicalName) {
-                targetKeys.push(key);
-              }
-            });
-          }
-          // 2) 全台系 選択（同機種すべて 9）
-          else if (selectedFlag === 9) {
-            Object.entries(data).forEach(([key, val]: [string, any]) => {
-              const canonical = resolveDisplayName(String(val?.name ?? ''));
-              if (canonical === targetCanonicalName) {
-                targetKeys.push(key);
-              }
-            });
-          }
-          // 3) 個別更新（対象セルのみ）
-          else {
-            Object.entries(data).forEach(([key, val]: [string, any]) => {
-              const canonical = resolveDisplayName(String(val?.name ?? ''));
-              if (canonical === targetCanonicalName && String(val?.machineNumber ?? '') === targetNumber) {
-                targetKeys.push(key);
-              }
-            });
-          }
-
-          if (targetKeys.length >= 1) {
-            const batch = writeBatch(db);
-            targetKeys.forEach((key) => {
-              batch.update(
-                ref,
-                new FieldPath('data', key, 'flag'),
-                selectedFlag,
-                new FieldPath('data', key, 'comment'),
-                commentValue
-              );
-            });
-            await batch.commit();
-          }
-
-          setModalOpen(false);
-          setSelectedComment('');
-
-          // 画面側へ反映
-          const api = gridRef.current?.api;
-          if (!api) return;
-          const field = dateField;
-          pendingScrollRestoreRef.current = scrollTopBeforeUpdate;
-
-          rowDataRef.current.forEach((row: any) => {
-            if (!row.flag) row.flag = {};
-            if (!row.comments) row.comments = {};
-            const canonical = resolveDisplayName(String(row?.name ?? row?.modelName ?? ''));
-            const rowNumber = String(row?.machineNumber ?? '');
-            if (originalFlag === 9 && selectedFlag === 0 && canonical === targetCanonicalName) {
-              row.flag[field] = 0;
-              row.comments[field] = commentValue;
-            } else if (selectedFlag === 9 && canonical === targetCanonicalName) {
-              row.flag[field] = 9;
-              row.comments[field] = commentValue;
-            } else if (canonical === targetCanonicalName && rowNumber === targetNumber) {
-              row.flag[field] = selectedFlag;
-              row.comments[field] = commentValue;
-            }
-          });
-
-          numberRowDataRef.current.forEach((row: any) => {
-            if (!row.flag) row.flag = {};
-            if (!row.comments) row.comments = {};
-            const canonical = resolveDisplayName(String(row?.name ?? row?.modelName ?? ''));
-            const rowNumber = String(row?.machineNumber ?? '');
-            if (originalFlag === 9 && selectedFlag === 0 && canonical === targetCanonicalName) {
-              row.flag[field] = 0;
-              row.comments[field] = commentValue;
-            } else if (selectedFlag === 9 && canonical === targetCanonicalName) {
-              row.flag[field] = 9;
-              row.comments[field] = commentValue;
-            } else if (canonical === targetCanonicalName && rowNumber === targetNumber) {
-              row.flag[field] = selectedFlag;
-              row.comments[field] = commentValue;
-            }
-          });
-
-          setRowData((prev) =>
-            prev.map((row: any) => {
-              const canonical = resolveDisplayName(String(row?.name ?? row?.modelName ?? ''));
-              const rowNumber = String(row?.machineNumber ?? '');
-              const shouldUpdate =
-                (originalFlag === 9 && selectedFlag === 0 && canonical === targetCanonicalName) ||
-                (selectedFlag === 9 && canonical === targetCanonicalName) ||
-                (canonical === targetCanonicalName && rowNumber === targetNumber);
-              if (!shouldUpdate) return row;
-              const next = { ...row, flag: { ...(row.flag ?? {}) }, comments: { ...(row.comments ?? {}) } };
-              next.flag[field] = selectedFlag;
-              next.comments[field] = commentValue;
-              return next;
-            })
-          );
-
-          api.refreshCells({ force: true });
-        }}
-
-
-        title="フラグ設定"
-      >
-        <p>台番号: {selectedCell?.rowData?.machineNumber}</p>
-        <p>機種名: {selectedCell?.rowData?.name ?? selectedCell?.rowData?.modelName}</p>
-        <p>日付: {selectedCell?.field}</p>
-        {selectedCellUrl ? (
-          <p><a
-            onClick={() => {
-              setMachineUrl(selectedCellUrl);
-              setIsMachineModalOpen(true);
-            }}
-          >
-            台データを見る
-          </a></p>
-        ) : null}
-
-        <Radio.Group
-          onChange={(e) => setSelectedFlag(Number(e.target.value))}
-          value={selectedFlag}
-        >
-          <Radio value={9} disabled={false}>全台系</Radio>
-          <Radio value={6} disabled={viewMode === 'model'}>設定6</Radio>
-          <Radio value={5} disabled={viewMode === 'model'}>設定56</Radio>
-          <Radio value={4} disabled={viewMode === 'model'}>設定456</Radio>
-          <Radio value={0} disabled={false}>フラグ解除</Radio>
-        </Radio.Group>
-
-        <div style={{ marginTop: 10 }}>
-          <Input.TextArea
-            value={selectedComment}
-            onChange={(e) => setSelectedComment(e.target.value)}
-            placeholder="コメントを入力"
-            autoSize={{ minRows: 2, maxRows: 4 }}
-          />
-        </div>
-      </Modal>
-      <Modal
-        title="台データ"
-        open={isMachineModalOpen}
-        onCancel={() => {
-          setIsMachineModalOpen(false);
-          setMachineUrl(null);
-        }}
-        footer={null}
-        width="90vw"
-        style={{ top: 20 }}
-      >
-        {machineUrl ? (
-          <div
-            style={{
-              width: "100%",
-              overflowX: "hidden",
-              touchAction: "pan-y",        // ←横方向のパンを抑制
-            }}
-          >
-            <iframe
-              src={machineUrl}
-              title="台データ"
-              style={{
-                width: "100%",
-                height: "70vh",
-                border: "none",
-                display: "block",
-              }}
-            />
-          </div>
-        ) : null}
-      </Modal>
+        selectedCell={selectedCell}
+        selectedCellUrl={selectedCellUrl}
+        selectedFlag={selectedFlag}
+        selectedComment={selectedComment}
+        viewMode={flagModalEffectiveMode}
+        onCancel={handleCloseFlagModal}
+        onOk={handleFlagModalOk}
+        okLoading={flagModalSaving}
+        onFlagChange={setSelectedFlag}
+        onCommentChange={setSelectedComment}
+        onOpenMachineData={handleOpenMachineDataModal}
+        detailSnapshot={flagModalDetailSnapshot}
+        detailGraphUrl={buildSnapshotGraphUrl(flagModalDetailSnapshot, flagModalDetailDateKey)}
+        detailHistoryRows={flagModalDetailHistoryRows}
+        detailHistoryLoading={flagModalDetailHistoryLoading}
+        detailHistoryCount={flagModalDetailHistoryCount}
+        detailGalleryItems={flagModalDetailGalleryItems}
+        detailGalleryStats={flagModalGalleryStats}
+        onOpenDetailMachineFromGallery={handleOpenNumberModalFromModelGallery}
+        onSwipePrevMachine={handleFlagModalSwipePrev}
+        onSwipeNextMachine={handleFlagModalSwipeNext}
+      />
+      <MachineDataModal open={isMachineModalOpen} machineUrl={machineUrl} onClose={handleCloseMachineDataModal} />
     </>
   );
 };
-
-// ================== 台番別（columns） ==================
-// シグネチャ変更：latestDate を追加
-function compareNumericCellValues(
-  valueA: any,
-  valueB: any,
-  _nodeA: any,
-  _nodeB: any,
-  isDescending?: boolean
-) {
-  const toNumber = (v: any): number | null => {
-    if (typeof v === 'number' && Number.isFinite(v)) return v;
-    if (typeof v === 'string') {
-      const normalized = v.replace(/,/g, '').trim();
-      if (!normalized || normalized === '-') return null;
-      const n = Number(normalized);
-      return Number.isFinite(n) ? n : null;
-    }
-    return null;
-  };
-
-  const a = toNumber(valueA);
-  const b = toNumber(valueB);
-  const aMissing = a === null;
-  const bMissing = b === null;
-
-  if (aMissing && bMissing) return 0;
-  if (aMissing && !bMissing) return isDescending ? -1 : 1;
-  if (!aMissing && bMissing) return isDescending ? 1 : -1;
-  return (a as number) - (b as number);
-}
-
-function buildNumberColumns(
-  dates: string[],
-  existing: ColDef[],
-  showModal: Function,
-  latestDate: string,        // ★ 追加
-  todayColumnHeader: string,
-  hasTodayDiffData: boolean,
-  resolveDisplayName: (name: string) => string,
-  getTooltipColor: (machineNumber: number | string | null | undefined) => string | undefined,
-  getTooltipText: (machineNumber: number | string | null | undefined) => string | undefined
-): ColDef[] {
-  const existingFields = new Set(existing.map(c => c.field));
-  const cols: ColDef[] = [];
-
-  const isMissingLatest = (row: any) => {
-    if (!latestDate) return false; // ★ 実効日付がないならグレー化しない
-    const v = row?.[latestDate];
-    return v === undefined || v === null || v === '-'; // 0 はデータ扱い
-  };
-
-  
-  if (!existingFields.has('machineNumber')) {
-    cols.push({
-      headerName: '',
-      field: 'machineNumber',
-      pinned: 'left',
-      width: 40,
-      tooltipValueGetter: (p: any) => getTooltipText(p?.data?.machineNumber),
-      cellRenderer: (p: any) => {
-        const text = getTooltipText(p?.data?.machineNumber);
-        return (
-          <div title={text || undefined}>
-            {p.value}
-          </div>
-        );
-      },
-      // ★ 固定列もグレー化
-      cellStyle: (p) => {
-        const base: any = {
-          fontSize: '0.8em',
-          padding: 0,
-          fontWeight: 'bold',
-          textAlign: 'center',
-          borderRight: '1px solid #ccc', 
-        };
-        if (!p?.data || p.data.isTotalRow) return base;
-        if (isMissingLatest(p.data)) {
-          base.backgroundColor = '#e0e0e0';
-          base.color = '#666';
-        } else {
-          const tooltipColor = getTooltipColor(p.data?.machineNumber);
-          if (tooltipColor) {
-            base.backgroundColor = tooltipColor;
-          }
-        }
-        return base;
-      },
-    });
-  }
-
-  if (!existingFields.has('name')) {
-    cols.push({
-      headerName: '機種名',
-      field: 'name',
-      pinned: 'left',
-      width: 90,
-      valueGetter: (p) => resolveDisplayName(p.data?.name ?? ''),
-      // ★ 固定列もグレー化
-      cellStyle: (p) => {
-        const base: any = {
-          fontSize: '0.6em',
-          padding: 0,
-          whiteSpace: 'normal',
-          textAlign: 'center',
-
-        };
-        if (!p?.data || p.data.isTotalRow) return base;
-        if (isMissingLatest(p.data)) {
-          base.backgroundColor = '#e0e0e0';
-          base.color = '#666';
-        }
-        return base;
-      },
-    });
-  }
-
-  if (!existingFields.has('todayDiff')) {
-    cols.push({
-      headerName: todayColumnHeader,
-      field: 'todayDiff',
-      hide: !hasTodayDiffData,
-      width: 60,
-      cellRenderer: 'customCellRenderer',
-      cellRendererParams: { showModal },
-      valueFormatter: (p: any) => {
-        const v = p?.value;
-        if (v === undefined || v === null || v === '-') return '-';
-        if (typeof v === 'number') {
-          const normalized = Object.is(v, -0) ? 0 : v;
-          return normalized.toLocaleString();
-        }
-        if (typeof v === 'string') {
-          const normalized = v.replace(/,/g, '').trim();
-          if (/^[+-]?0(?:\.0+)?$/.test(normalized)) return '0';
-        }
-        return v;
-      },
-      comparator: compareNumericCellValues,
-      cellStyle: (p) => {
-        const v = p?.value;
-        const base: any = {
-          fontSize: '0.8em',
-          padding: 0,
-          fontWeight: 'bold',
-          textAlign: 'center',
-          backgroundColor: '#fff7cc',
-          borderRight: '1px solid #ccc',
-        };
-        if (!p?.data) return base;
-        if (typeof v === 'number') {
-          if (v > 0 || Object.is(v, 0) || Object.is(v, -0)) base.color = '#4c6cb3';
-          else if (v < 0) base.color = '#d9333f';
-        }
-        if (isMissingLatest(p.data)) {
-          base.backgroundColor = '#e0e0e0';
-          base.color = '#666';
-          return base;
-        }
-        return base;
-      },
-    });
-  }
-
-  const dynamic: ColDef[] = dates
-    .filter(d => !existingFields.has(d))
-    .map((d) => ({
-      headerName: formatDate(d),
-      field: d,
-      width: 60,
-      cellRenderer: 'customCellRenderer',
-      cellRendererParams: { showModal },
-      comparator: compareNumericCellValues,
-      cellStyle: (params) => {
-        const v = params.value;
-        const row = params.data;
-        const field = params.colDef.field as string;
-        const flag = row?.flag?.[field];
-
-        let color = '#ccc';
-        let backgroundColor: string | undefined;
-
-        if (typeof v === 'number') {
-          color = v >= 0 ? '#4c6cb3' : '#d9333f';
-        }
-
-        switch (flag) {
-          case 9: backgroundColor = '#FFBFC7'; break;
-          case 6: backgroundColor = '#5bd799'; break;
-          case 5: backgroundColor = '#D3B9DE'; break;
-          case 4: backgroundColor = '#FFE899'; break;
-          default: break;
-        }
-
-        // ★ 全列で“最新欠損”ならグレー
-        if (row && !row.isTotalRow && isMissingLatest(row)) {
-          backgroundColor = '#e0e0e0';
-          color = '#666';
-        }
-
-        switch (flag) {
-          case 9: backgroundColor = '#FFBFC7'; break;
-          case 6: backgroundColor = '#5bd799'; break;
-          case 5: backgroundColor = '#D3B9DE'; break;
-          case 4: backgroundColor = '#FFE899'; break;
-          default: break;
-        }
-
-        return {
-          color,
-          fontSize: '0.8em',
-          padding: 0,
-          fontWeight: 'bold',
-          textAlign: 'center',
-          borderRight: '1px solid #ccc',
-          backgroundColor,
-        } as any;
-      },
-    }));
-
-  return [...cols, ...dynamic];
-}
-
-
-// ========= 機種別（平均）columns =========
-function buildGroupedColumnsForDates(
-  dates: string[],
-  existing: ColDef[],
-  showModal: (value: any, row: any, field: string) => void,
-  latestDate: string,
-  todayColumnHeader: string,
-  hasTodayDiffData: boolean,
-  resolveDisplayName: (name: string) => string,
-  displayMetric: DisplayMetric
-): ColDef[] {  const existingFields = new Set(existing.map(c => c.field));
-  const cols: ColDef[] = [];
-
-  const isMissingLatest = (row: any) => {
-    if (!latestDate) return false;
-    const v = row?.[latestDate];
-    return v === undefined || v === null || v === '-';
-  };
-
-  const compareGroupedByAverageDiff = (
-    valueA: any,
-    valueB: any,
-    _nodeA: any,
-    _nodeB: any,
-    isDescending?: boolean
-  ) => {
-    const a = parseGroupedMetricCell(valueA);
-    const b = parseGroupedMetricCell(valueB);
-    const aMissing = !a;
-    const bMissing = !b;
-
-    if (aMissing && bMissing) return 0;
-    if (aMissing && !bMissing) return isDescending ? -1 : 1;
-    if (!aMissing && bMissing) return isDescending ? 1 : -1;
-
-    const avgDiff = a!.avg - b!.avg;
-    if (avgDiff !== 0) return avgDiff;
-
-    const winRateDiff = a!.winRate - b!.winRate;
-    if (winRateDiff !== 0) return winRateDiff;
-    return 0;
-  };
-
-  const groupedComparator = displayMetric === 'games'
-    ? compareNumericCellValues
-    : compareGroupedByAverageDiff;
-
-  const getGroupedCellColor = (value: any) => {
-    const parsed = parseGroupedMetricCell(value);
-    if (!parsed) return '#333';
-    return parsed.avg >= 0 ? '#4c6cb3' : '#d9333f';
-  };
-
-  if (!existingFields.has('name')) {
-    cols.push({
-      headerName: '機種名',
-      field: 'name',
-      valueGetter: (p) => resolveDisplayName(p.data?.name ?? p.data?.modelName ?? ''),
-      cellRenderer: 'groupedNameCellRenderer',
-      pinned: 'left',
-      width: 100,
-      cellStyle: (p: any) => {
-        const base: any = {
-          fontSize: '0.6rem',
-          padding: 0,
-          whiteSpace: 'normal',
-          textAlign: 'left',
-        };
-        if (!p?.data) return base;
-        if (isMissingLatest(p.data)) {
-          base.backgroundColor = '#e0e0e0';
-          base.color = '#666';
-        }
-        return base;
-      },
-    });
-  }
-
-  if (!existingFields.has('todayDiff')) {
-    cols.push({
-      headerName: todayColumnHeader,
-      field: 'todayDiff',
-      hide: !hasTodayDiffData,
-      width: 60,
-      cellRenderer: 'groupedCellRenderer',
-      cellRendererParams: { showModal },
-      comparator: groupedComparator,
-      cellStyle: (p: any) => {
-        const v = p?.value;
-        const base: any = {
-          fontSize: '0.8em',
-          padding: 0,
-          fontWeight: 'bold',
-          textAlign: 'center',
-          backgroundColor: '#fff7cc',
-          borderRight: '1px solid #ccc',
-        };
-        if (!p?.data) return base;
-        base.color = getGroupedCellColor(v);
-        if (!p.data?.isTotalRow && isMissingLatest(p.data)) {
-          base.backgroundColor = '#e0e0e0';
-          base.color = '#666';
-        }
-        return base;
-      },
-    });
-  }
-
-  // 日付は降順（最新→古い）
-  const sortedDates = [...dates].sort((a, b) => b.localeCompare(a));
-
-  const dynamic: ColDef[] = sortedDates
-  .filter(d => !existingFields.has(d))
-  .map((d) => ({
-    headerName: formatDate(d),
-    field: d,
-    width: 60,
-    cellRenderer: 'groupedCellRenderer',
-    // ★ 機種別でもダブルタップでモーダル起動
-    cellRendererParams: { showModal },
-    comparator: groupedComparator,
-    cellStyle: (params) => {
-      const v = params.value;
-      const row = params.data;
-      const field = params.colDef.field as string;
-
-      const flag = row?.flag?.[field];
-
-      let color = getGroupedCellColor(v);
-
-      let backgroundColor: string | undefined;
-      switch (flag) {
-        case 9: backgroundColor = '#FFBFC7'; break;
-        case 5: backgroundColor = '#D3B9DE'; break;
-        case 4: backgroundColor = '#FFE899'; break;
-      }
-
-      if (row && isMissingLatest(row)) {
-        color = '#666';
-        if (!backgroundColor) {
-          backgroundColor = '#e0e0e0';
-        }
-      }
-
-      return {
-        color,
-        fontSize: '0.8em',
-        padding: 0,
-        fontWeight: 'bold',
-        textAlign: 'center',
-        borderRight: '1px solid #ccc',
-        backgroundColor,
-      } as any;
-    }
-  }));
-
-  return [...cols, ...dynamic];
-}
-
-function buildTailColumnsForDates(
-  dates: string[],
-  latestDate: string,
-  todayColumnHeader: string,
-  hasTodayDiffData: boolean,
-  displayMetric: DisplayMetric,
-  tailRowsForScale: any[]
-): ColDef[] {
-  const isGamesMetric = displayMetric === 'games';
-  const parseTailCell = (value: any): { avg: number; ratio: string; winRate: number } | null => {
-    if (typeof value !== 'string') return null;
-    const m = value.match(/^(-?\d+)\((\d+)\/(\d+)\)$/);
-    if (!m) return null;
-    const avg = Number(m[1]);
-    const winCount = Number(m[2]);
-    const totalCount = Number(m[3]);
-    if (!Number.isFinite(avg) || !Number.isFinite(winCount) || !Number.isFinite(totalCount) || totalCount <= 0) {
-      return null;
-    }
-    return { avg, ratio: `(${winCount}/${totalCount})`, winRate: winCount / totalCount };
-  };
-
-  const parseTailAverage = (value: any): number | null => {
-    if (typeof value === 'number') return value;
-    const parsed = parseTailCell(value);
-    return parsed ? parsed.avg : null;
-  };
-
-  const compareTailByWinRate = (
-    valueA: any,
-    valueB: any,
-    _nodeA: any,
-    _nodeB: any,
-    isDescending?: boolean
-  ) => {
-    const a = parseTailCell(valueA);
-    const b = parseTailCell(valueB);
-    const aMissing = !a;
-    const bMissing = !b;
-
-    if (aMissing && bMissing) return 0;
-    if (aMissing && !bMissing) return isDescending ? -1 : 1;
-    if (!aMissing && bMissing) return isDescending ? 1 : -1;
-
-    const winRateDiff = (a!.winRate - b!.winRate);
-    if (winRateDiff !== 0) return winRateDiff;
-
-    const avgDiff = (a!.avg - b!.avg);
-    if (avgDiff !== 0) return avgDiff;
-
-    return 0;
-  };
-
-  const compareTailByAverage = (
-    valueA: any,
-    valueB: any,
-    _nodeA: any,
-    _nodeB: any,
-    isDescending?: boolean
-  ) => {
-    const a = parseTailAverage(valueA);
-    const b = parseTailAverage(valueB);
-    const aMissing = a === null;
-    const bMissing = b === null;
-
-    if (aMissing && bMissing) return 0;
-    if (aMissing && !bMissing) return isDescending ? -1 : 1;
-    if (!aMissing && bMissing) return isDescending ? 1 : -1;
-    return (a as number) - (b as number);
-  };
-
-  const tailComparator = isGamesMetric ? compareTailByAverage : compareTailByWinRate;
-
-  const getWinRateHeatmapColor = (winRate: number): string | undefined => {
-    // 勝率40%以下は無色、40%超を薄い赤〜濃い赤にマップ
-    if (winRate <= 0.4) return undefined;
-    const clamped = Math.max(0.4, Math.min(1, winRate));
-    const normalized = (clamped - 0.4) / 0.6; // 0..1
-    const alpha = 0.12 + normalized * 0.73;
-    return `rgba(255, 40, 40, ${alpha.toFixed(3)})`;
-  };
-
-  const sortedDates = [...dates].sort((a, b) => b.localeCompare(a));
-  const fieldsForGamesScale = [todayColumnHeader ? 'todayDiff' : '', ...sortedDates].filter((f) => !!f);
-  const gamesScaleByField: Record<string, { min: number; max: number }> = {};
-  if (isGamesMetric) {
-    fieldsForGamesScale.forEach((field) => {
-      const values = (tailRowsForScale ?? [])
-        .map((row) => parseTailAverage(row?.[field]))
-        .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
-      if (values.length === 0) return;
-      gamesScaleByField[field] = {
-        min: Math.min(...values),
-        max: Math.max(...values),
-      };
-    });
-  }
-
-  const getGamesHeatmapColor = (avgGame: number, field: string): string | undefined => {
-    if (!Number.isFinite(avgGame)) return undefined;
-    const scale = gamesScaleByField[field];
-    if (!scale) return undefined;
-    const span = scale.max - scale.min;
-    if (span <= 0) return undefined;
-    const normalized = Math.max(0, Math.min(1, (avgGame - scale.min) / span));
-    if (normalized <= 0) return undefined;
-    const alpha = 0.08 + normalized * 0.52;
-    return `rgba(255, 40, 40, ${alpha.toFixed(3)})`;
-  };
-
-  const isMissingLatest = (row: any) => {
-    if (!latestDate) return false;
-    const v = row?.[latestDate];
-    return v === undefined || v === null || v === '-';
-  };
-
-  const dynamicCols: ColDef[] = sortedDates.map((date) => ({
-    headerName: formatDate(date),
-    field: date,
-    width: 60,
-    comparator: tailComparator,
-    cellRenderer: (params: any) => {
-      if (isGamesMetric) {
-        const avg = parseTailAverage(params.value);
-        if (avg === null) return params.value;
-        return avg.toLocaleString();
-      }
-      const parsed = parseTailCell(params.value);
-      if (!parsed) return params.value;
-      return (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.1 }}>
-          <span>{parsed.avg}</span>
-          <span style={{ fontSize: '0.7em' }}>{(parsed.winRate * 100).toFixed(1)}%</span>
-          <span style={{ fontSize: '0.65em' }}>{parsed.ratio}</span>
-        </div>
-      );
-    },
-    cellStyle: (params) => {
-      const v = params.value;
-      const parsed = parseTailCell(v);
-      let color = '#333';
-      const avg = parseTailAverage(v);
-      if (avg !== null) {
-        color = avg >= 0 ? '#4c6cb3' : '#d9333f';
-      }
-
-      let backgroundColor: string | undefined;
-      if (isMissingLatest(params.data)) {
-        backgroundColor = '#e0e0e0';
-        color = '#666';
-      } else if (isGamesMetric) {
-        if (avg !== null) {
-          backgroundColor = getGamesHeatmapColor(avg, date);
-        }
-      } else if (parsed) {
-        backgroundColor = getWinRateHeatmapColor(parsed.winRate);
-      }
-
-      return {
-        color,
-        fontSize: '0.8em',
-        padding: 0,
-        fontWeight: 'bold',
-        textAlign: 'center',
-        whiteSpace: 'normal',
-        borderRight: '1px solid #ccc',
-        backgroundColor,
-      } as any;
-    },
-  }));
-
-  return [
-    {
-      headerName: '末尾',
-      field: 'tailLabel',
-      pinned: 'left',
-      width: 90,
-      cellStyle: (params) => {
-        const base: any = {
-          fontSize: '0.75rem',
-          padding: 0,
-          textAlign: 'center',
-          fontWeight: 'bold',
-          borderRight: '1px solid #ccc',
-        };
-        if (isMissingLatest(params?.data)) {
-          base.backgroundColor = '#e0e0e0';
-          base.color = '#666';
-        }
-        return base;
-      },
-    },
-    {
-      headerName: todayColumnHeader,
-      field: 'todayDiff',
-      hide: !hasTodayDiffData,
-      width: 60,
-      comparator: tailComparator,
-      cellRenderer: (params: any) => {
-        if (isGamesMetric) {
-          const avg = parseTailAverage(params.value);
-          if (avg === null) return params.value;
-          return avg.toLocaleString();
-        }
-        const parsed = parseTailCell(params.value);
-        if (!parsed) return params.value;
-        return (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.1 }}>
-            <span>{parsed.avg}</span>
-            <span style={{ fontSize: '0.7em' }}>{(parsed.winRate * 100).toFixed(1)}%</span>
-            <span style={{ fontSize: '0.65em' }}>{parsed.ratio}</span>
-          </div>
-        );
-      },
-      cellStyle: (params) => {
-        const v = params.value;
-        const parsed = parseTailCell(v);
-        let color = '#333';
-        const avg = parseTailAverage(v);
-        if (avg !== null) {
-          color = avg >= 0 ? '#4c6cb3' : '#d9333f';
-        }
-        const base: any = {
-          color,
-          fontSize: '0.8em',
-          padding: 0,
-          fontWeight: 'bold',
-          textAlign: 'center',
-          whiteSpace: 'normal',
-          borderRight: '1px solid #ccc',
-          backgroundColor: '#fff7cc',
-        };
-        if (isMissingLatest(params.data)) {
-          base.backgroundColor = '#e0e0e0';
-          base.color = '#666';
-        } else if (isGamesMetric) {
-          if (avg !== null) {
-            base.backgroundColor = getGamesHeatmapColor(avg, 'todayDiff') ?? '#fff7cc';
-          }
-        } else if (parsed) {
-          base.backgroundColor = getWinRateHeatmapColor(parsed.winRate) ?? '#fff7cc';
-        }
-        return base;
-      },
-    },
-    ...dynamicCols,
-  ];
-}
-
-function getPastDates(days: number, offset: number): string[] {
-  return Array.from({ length: days }, (_, i) =>
-    dayjs().subtract(i + offset, 'day').format('YYYYMMDD')
-  );
-}
-
-function formatDate(yyyymmdd: string): string {
-  return `${yyyymmdd.slice(4, 6)}/${yyyymmdd.slice(6)}`;
-}
-
-function formatGroupedMetricCell(sum: number, count: number, positiveCount: number): string {
-  if (!Number.isFinite(sum) || !Number.isFinite(count) || count <= 0) return '-';
-  const avg = Math.round(sum / count);
-  return `${avg}(${positiveCount}/${count})`;
-}
-
-function parseGroupedMetricCell(value: any): { avg: number; ratio: string; winRate: number } | null {
-  if (typeof value === 'string') {
-    const m = value.match(/^(-?\d+)\((\d+)\/(\d+)\)$/);
-    if (!m) return null;
-    const avg = Number(m[1]);
-    const positive = Number(m[2]);
-    const count = Number(m[3]);
-    if (!Number.isFinite(avg) || !Number.isFinite(positive) || !Number.isFinite(count) || count <= 0) {
-      return null;
-    }
-    return { avg, ratio: `(${positive}/${count})`, winRate: positive / count };
-  }
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return {
-      avg: value,
-      ratio: value > 0 ? '(1/1)' : '(0/1)',
-      winRate: value > 0 ? 1 : 0,
-    };
-  }
-  return null;
-}
-
-function applyGroupedDateMetricCells(rows: any[], allData: Record<string, any>): any[] {
-  if (!Array.isArray(rows) || rows.length === 0) return rows;
-  const dates = Object.keys(allData ?? {});
-  if (dates.length === 0) return rows;
-
-  const perDateByName: Record<string, Record<string, { sum: number; count: number; positiveCount: number }>> = {};
-  const perDateTotal: Record<string, { sum: number; count: number; positiveCount: number }> = {};
-
-  dates.forEach((date) => {
-    const day = allData?.[date] ?? {};
-    const byName: Record<string, { sum: number; count: number; positiveCount: number }> = {};
-    let totalSum = 0;
-    let totalCount = 0;
-    let totalPositiveCount = 0;
-
-    Object.values(day).forEach((item: any) => {
-      const name = String(item?.name ?? '');
-      const diff = item?.diff;
-      if (!name || typeof diff !== 'number') return;
-      if (!byName[name]) byName[name] = { sum: 0, count: 0, positiveCount: 0 };
-      byName[name].sum += diff;
-      byName[name].count += 1;
-      if (diff > 0) byName[name].positiveCount += 1;
-
-      totalSum += diff;
-      totalCount += 1;
-      if (diff > 0) totalPositiveCount += 1;
-    });
-
-    perDateByName[date] = byName;
-    perDateTotal[date] = { sum: totalSum, count: totalCount, positiveCount: totalPositiveCount };
-  });
-
-  return rows.map((row) => {
-    if (!row) return row;
-    const next = { ...row };
-
-    dates.forEach((date) => {
-      if (row?.isTotalRow) {
-        const t = perDateTotal[date];
-        next[date] = t && t.count > 0
-          ? formatGroupedMetricCell(t.sum, t.count, t.positiveCount)
-          : '-';
-        return;
-      }
-
-      const name = String(row?.name ?? row?.modelName ?? '');
-      const m = perDateByName[date]?.[name];
-      next[date] = m && m.count > 0
-        ? formatGroupedMetricCell(m.sum, m.count, m.positiveCount)
-        : '-';
-    });
-
-    return next;
-  });
-}
-
-function mergeRowData(prev: any[], next: any[]): any[] {
-  const merged: Record<string, any> = {};
-  for (const row of prev) merged[row.id] = { ...row };
-
-  for (const row of next) {
-    if (!merged[row.id]) {
-      merged[row.id] = { ...row };
-    } else {
-      const mergedRow = merged[row.id];
-      for (const key of Object.keys(row)) {
-        if (key !== 'flag' && key !== 'urls' && key !== 'comments') {
-          mergedRow[key] = row[key];
-        }
-      }
-      mergedRow.flag = {
-        ...row.flag,
-        ...mergedRow.flag, // 既存のユーザー更新を優先
-      };
-      mergedRow.urls = {
-        ...row.urls,
-        ...mergedRow.urls, // 既存のユーザー更新を優先
-      };
-      mergedRow.comments = {
-        ...row.comments,
-        ...mergedRow.comments, // 既存のユーザー更新を優先
-      };
-    }
-  }
-
-  return Object.values(merged);
-}
-
-function applyTodayDiffToRows(
-  rows: any[],
-  todayDiffMap: Record<string, number>,
-  todaySnapshotDateKey: string
-): any[] {
-  if (!Array.isArray(rows) || rows.length === 0) return rows;
-  const normalizedMap = todayDiffMap ?? {};
-  const snapshotBase = /^\d{8}$/.test(todaySnapshotDateKey)
-    ? `${todaySnapshotDateKey.slice(0, 4)}-${todaySnapshotDateKey.slice(4, 6)}-${todaySnapshotDateKey.slice(6, 8)}`
-    : dayjs().tz('Asia/Tokyo').format('YYYY-MM-DD');
-  const prevDayKey = dayjs(snapshotBase).subtract(1, 'day').format('YYYYMMDD');
-
-  let total = 0;
-  let hasTotal = false;
-
-  const mapped = rows.map((row) => {
-    if (!row) return row;
-    if (row.isTotalRow) return { ...row, todayDiff: '-' };
-
-    const machineKey = String(row.machineNumber ?? '');
-    const prevDayValue = row?.[prevDayKey];
-    const hasPrevDayValue = !(prevDayValue === undefined || prevDayValue === null || prevDayValue === '-');
-    if (!hasPrevDayValue) {
-      return { ...row, todayDiff: '-' };
-    }
-    const diff = normalizedMap[machineKey];
-    const todayDiff = Number.isFinite(diff) ? diff : '-';
-    if (typeof todayDiff === 'number') {
-      total += todayDiff;
-      hasTotal = true;
-    }
-    return { ...row, todayDiff };
-  });
-
-  return mapped.map((row) => {
-    if (!row?.isTotalRow) return row;
-    return {
-      ...row,
-      todayDiff: hasTotal ? total : '-',
-    };
-  });
-}
-
-function applyTodayDiffToGroupedRows(
-  groupedRows: any[],
-  numberRows: any[],
-  latestDate: string,
-  includeStats: boolean
-): any[] {
-  if (!Array.isArray(groupedRows) || groupedRows.length === 0) return groupedRows;
-  if (!Array.isArray(numberRows) || numberRows.length === 0) {
-    return groupedRows.map((row) => ({ ...row, todayDiff: '-', machineNumbers: [] }));
-  }
-
-  const hasLatestData = (row: any): boolean => {
-    if (!latestDate) return true;
-    const v = row?.[latestDate];
-    return !(v === undefined || v === null || v === '-');
-  };
-
-  const sumByName: Record<string, number> = {};
-  const countByName: Record<string, number> = {};
-  const positiveByName: Record<string, number> = {};
-  const machineNumbersByName: Record<string, string[]> = {};
-  let totalSum = 0;
-  let totalCount = 0;
-  let totalPositive = 0;
-
-  numberRows.forEach((row) => {
-    if (!row || row.isTotalRow) return;
-    if (!hasLatestData(row)) return;
-    const name = String(row.name ?? '');
-    const machineKey = String(row.machineNumber ?? '').trim();
-    if (name && machineKey) {
-      const list = machineNumbersByName[name] ?? (machineNumbersByName[name] = []);
-      if (!list.includes(machineKey)) list.push(machineKey);
-    }
-    const diff = row.todayDiff;
-    if (!name || typeof diff !== 'number') return;
-    sumByName[name] = (sumByName[name] ?? 0) + diff;
-    countByName[name] = (countByName[name] ?? 0) + 1;
-    if (diff > 0) positiveByName[name] = (positiveByName[name] ?? 0) + 1;
-    totalSum += diff;
-    totalCount += 1;
-    if (diff > 0) totalPositive += 1;
-  });
-
-  return groupedRows.map((row) => {
-    if (!row) return row;
-    if (row.isTotalRow) {
-      const totalAvg = totalCount > 0 ? Math.round(totalSum / totalCount) : '-';
-      return {
-        ...row,
-        todayDiff: includeStats
-          ? (totalCount > 0 ? formatGroupedMetricCell(totalSum, totalCount, totalPositive) : '-')
-          : totalAvg,
-        machineNumbers: [],
-      };
-    }
-    const name = String(row.name ?? row.modelName ?? '');
-    const count = countByName[name] ?? 0;
-    const machineNumbers = [...(machineNumbersByName[name] ?? [])].sort((a, b) => {
-      const ai = Number(a);
-      const bi = Number(b);
-      if (Number.isFinite(ai) && Number.isFinite(bi)) return ai - bi;
-      return a.localeCompare(b, 'ja');
-    });
-    if (count <= 0) return { ...row, todayDiff: '-', machineNumbers };
-    const avg = Math.round((sumByName[name] ?? 0) / count);
-    return {
-      ...row,
-      todayDiff: includeStats
-        ? formatGroupedMetricCell(sumByName[name] ?? 0, count, positiveByName[name] ?? 0)
-        : avg,
-      machineNumbers,
-    };
-  });
-}
-
-function applyTodayDiffToTailRows(tailRows: any[], numberRows: any[], includeStats: boolean): any[] {
-  if (!Array.isArray(tailRows) || tailRows.length === 0) return tailRows;
-  if (!Array.isArray(numberRows) || numberRows.length === 0) {
-    return tailRows.map((row) => ({ ...row, todayDiff: '-' }));
-  }
-
-  const labels = [
-    '末尾0', '末尾1', '末尾2', '末尾3', '末尾4',
-    '末尾5', '末尾6', '末尾7', '末尾8', '末尾9',
-    'ゾロ目',
-  ];
-  const sums = Array.from({ length: labels.length }, () => ({ sum: 0, count: 0, positiveCount: 0 }));
-
-  const getMachineNumber = (item: any): number | null => {
-    const raw = item?.machineNumber;
-    if (raw === undefined || raw === null || raw === '') return null;
-    const n = Number(raw);
-    return Number.isFinite(n) ? n : null;
-  };
-
-  const isZorome = (machineNumber: number) => {
-    const twoDigits = Math.abs(machineNumber % 100).toString().padStart(2, '0');
-    return twoDigits[0] === twoDigits[1];
-  };
-
-  numberRows.forEach((row) => {
-    if (!row || row.isTotalRow) return;
-    const machineNumber = getMachineNumber(row);
-    const diff = row.todayDiff;
-    if (machineNumber == null || typeof diff !== 'number') return;
-
-    const tail = Math.abs(machineNumber % 10);
-    sums[tail].sum += diff;
-    sums[tail].count += 1;
-    if (diff > 0) sums[tail].positiveCount += 1;
-
-    if (isZorome(machineNumber)) {
-      sums[10].sum += diff;
-      sums[10].count += 1;
-      if (diff > 0) sums[10].positiveCount += 1;
-    }
-  });
-
-  return tailRows.map((row) => {
-    const idx = labels.indexOf(String(row?.tailLabel ?? ''));
-    if (idx < 0) return { ...row, todayDiff: '-' };
-    const g = sums[idx];
-    if (!g || g.count <= 0) return { ...row, todayDiff: '-' };
-    const avg = Math.round(g.sum / g.count);
-    return {
-      ...row,
-      todayDiff: includeStats ? `${avg}(${g.positiveCount}/${g.count})` : avg,
-    };
-  });
-}
-
-
-// ★ 追加：少なくとも1件データのある最新日付を返す
-function pickEffectiveLatestDate(
-  allData: Record<string, any>,  // rawMapRef.current を想定（YYYYMMDD => { dataKey: item })
-  candidateDates: string[]
-): string | null {
-  // 候補日を「新しい順」に
-  const sorted = [...candidateDates].sort((a, b) => b.localeCompare(a));
-  for (const d of sorted) {
-    const dayMap = allData[d] || {};
-    // “データあり”の定義：diff が数値 or 0（0もデータとして扱う想定）
-    const hasAny = Object.values(dayMap).some((it: any) => {
-      const v = it?.diff;
-      return v !== undefined && v !== null && v !== '-';
-    });
-    if (hasAny) return d;
-  }
-  return null;
-}
-
-// 既存：最新欠損を下へ（effectiveLatestDate が空なら何もしない）
-function sortByLatestMissing(rows: any[], latestDate: string): any[] {
-  if (!Array.isArray(rows) || rows.length === 0 || !latestDate) return rows;
-
-  const isMissing = (row: any) => {
-    const v = row?.[latestDate];
-    // “欠損”の定義：undefined / null / '-'（0 はデータ扱い）
-    return v === undefined || v === null || v === '-';
-  };
-
-  const total = rows.find(r => r?.isTotalRow);
-  const others = rows.filter(r => !r?.isTotalRow);
-
-  others.sort((a: any, b: any) => {
-    const aMissing = isMissing(a);
-    const bMissing = isMissing(b);
-    if (aMissing !== bMissing) return aMissing ? 1 : -1;
-
-    const am = Number(a.machineNumber);
-    const bm = Number(b.machineNumber);
-    if (Number.isFinite(am) && Number.isFinite(bm)) return am - bm;
-
-    return String(a.machineNumber).localeCompare(String(b.machineNumber), 'ja') ||
-           String(a.name).localeCompare(String(b.name), 'ja');
-  });
-
-  return total ? [total, ...others] : others;
-}
-
-// ★ 追加：台番昇順（フォールバック用）
-function sortByMachineNumber(rows: any[]): any[] {
-  const total = rows.find(r => r?.isTotalRow);
-  const others = rows.filter(r => !r?.isTotalRow);
-
-  others.sort((a: any, b: any) => {
-    const am = Number(a.machineNumber);
-    const bm = Number(b.machineNumber);
-    if (Number.isFinite(am) && Number.isFinite(bm)) return am - bm;
-    return String(a.machineNumber).localeCompare(String(b.machineNumber), 'ja') ||
-           String(a.name).localeCompare(String(b.name), 'ja');
-  });
-
-  return total ? [total, ...others] : others;
-}
-
