@@ -1,5 +1,5 @@
 import { Button, Input, Modal, Radio } from 'antd';
-import type { FC } from 'react';
+import { useEffect, useState, type FC } from 'react';
 import { useSwipeable } from 'react-swipeable';
 import type { TodayGalleryStats, TodayOatariHistoryRow, TodaySnapshotItem, ViewMode } from '../types';
 
@@ -81,6 +81,22 @@ export const FlagSettingModal: FC<Props> = ({
   onSwipePrevMachine,
   onSwipeNextMachine,
 }) => {
+  const [maskClosable, setMaskClosable] = useState(false);
+
+  useEffect(() => {
+    if (!open) {
+      setMaskClosable(false);
+      return;
+    }
+    setMaskClosable(false);
+    const timer = setTimeout(() => {
+      setMaskClosable(true);
+    }, 450);
+    return () => {
+      clearTimeout(timer);
+    };
+  }, [open]);
+
   const formatDiffLikeValue = (value: unknown): string => {
     if (value === null || value === undefined || value === '') return '-';
     if (typeof value === 'number' && Number.isFinite(value)) {
@@ -134,6 +150,7 @@ export const FlagSettingModal: FC<Props> = ({
     <Modal
       open={open}
       onCancel={onCancel}
+      maskClosable={maskClosable}
       footer={null}
       title="フラグ設定"
       style={{ top: 12 }}
@@ -193,6 +210,7 @@ export const FlagSettingModal: FC<Props> = ({
             onChange={(e) => onCommentChange(e.target.value)}
             placeholder="コメントを入力"
             autoSize={{ minRows: 2, maxRows: 4 }}
+            style={{ fontSize: 16, lineHeight: 1.4 }}
           />
         </div>
 

@@ -84,6 +84,28 @@ export async function fetchNameCombineMap(): Promise<Record<string, string>> {
 }
 
 /**
+ * フロアマップ表示用の略名マップ（正式名 -> 略名）を取得する。
+ * Firestore: config/shortName.map = { 略名: 正式名 }
+ */
+export async function fetchShortNameMap(): Promise<Record<string, string>> {
+  const snap = await getDoc(doc(db, 'config', 'shortName'));
+  if (!snap.exists()) return {};
+
+  const payload = snap.data() as any;
+  const source = payload?.map && typeof payload.map === 'object' && !Array.isArray(payload.map) ? payload.map : {};
+
+  const next: Record<string, string> = {};
+  Object.entries(source as Record<string, unknown>).forEach(([shortName, fullName]) => {
+    const short = String(shortName ?? '').trim();
+    const full = String(fullName ?? '').trim();
+    if (!short || !full) return;
+    next[full] = short;
+  });
+
+  return next;
+}
+
+/**
  * 当日スナップショット詳細を取得する。
  * @param snapshotId `storeId_YYYYMMDD` 形式のドキュメントID
  */

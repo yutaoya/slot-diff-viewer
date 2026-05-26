@@ -898,10 +898,22 @@ export function applyTodayDiffToRows(
 ): any[] {
   if (!Array.isArray(rows) || rows.length === 0) return rows;
   const normalizedMap = todayDiffMap ?? {};
-  const snapshotBase = /^\d{8}$/.test(todaySnapshotDateKey)
-    ? `${todaySnapshotDateKey.slice(0, 4)}-${todaySnapshotDateKey.slice(4, 6)}-${todaySnapshotDateKey.slice(6, 8)}`
-    : dayjs().tz('Asia/Tokyo').format('YYYY-MM-DD');
-  const prevDayKey = dayjs(snapshotBase).subtract(1, 'day').format('YYYYMMDD');
+  const todayKey = /^\d{8}$/.test(todaySnapshotDateKey) ? todaySnapshotDateKey : '';
+  const hasCellData = (value: unknown) => !(value === undefined || value === null || value === '-');
+  const priorDateKeys = Array.from(
+    rows.reduce((keys: Set<string>, row) => {
+      if (!row || row.isTotalRow) return keys;
+      Object.keys(row).forEach((key) => {
+        if (/^\d{8}$/.test(key) && (!todayKey || key < todayKey)) {
+          keys.add(key);
+        }
+      });
+      return keys;
+    }, new Set<string>())
+  ).sort((a, b) => b.localeCompare(a));
+  const effectivePriorDateKey = priorDateKeys.find((dateKey) => (
+    rows.some((row) => row && !row.isTotalRow && hasCellData(row[dateKey]))
+  ));
 
   let total = 0;
   let hasTotal = false;
@@ -911,9 +923,7 @@ export function applyTodayDiffToRows(
     if (row.isTotalRow) return { ...row, todayDiff: '-' };
 
     const machineKey = String(row.machineNumber ?? '');
-    const prevDayValue = row?.[prevDayKey];
-    const hasPrevDayValue = !(prevDayValue === undefined || prevDayValue === null || prevDayValue === '-');
-    if (!hasPrevDayValue) {
+    if (!effectivePriorDateKey || !hasCellData(row[effectivePriorDateKey])) {
       return { ...row, todayDiff: '-' };
     }
     const diff = normalizedMap[machineKey];

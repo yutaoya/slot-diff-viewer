@@ -52,6 +52,7 @@ import {
   fetchNameCombineMap,
   fetchSnapshotDetailFromOatariSubcollection,
   fetchOatariHistorySubcollection,
+  fetchShortNameMap,
   fetchSlotDiffDateData,
   fetchTodaySnapshotDetailMap,
   fetchTooltipMapsByStoreId,
@@ -60,6 +61,7 @@ import {
 } from './features/slotDiffGrid/slotDiffRepository';
 import { FlagSettingModal } from './features/slotDiffGrid/components/FlagSettingModal';
 import { MachineDataModal } from './features/slotDiffGrid/components/MachineDataModal';
+import { FloorMapView, type FloorMapDateOption, type FloorMapMachineData } from './features/slotDiffGrid/components/FloorMapView';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -85,6 +87,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
 
   const [loadedDates, setLoadedDates] = useState<Set<string>>(new Set());
   const loadingRef = useRef(false);
+  const [refreshing, setRefreshing] = useState(false);
   const scrollReady = useRef(false);
   const didInitRef = useRef(false);
 
@@ -121,6 +124,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     machineKeys: string[];
   } | null>(null);
   const flagModalDetailReqRef = useRef(0);
+  const flagModalMachineOrderOverrideRef = useRef<string[]>([]);
   const [todayDetailModalOpen, setTodayDetailModalOpen] = useState(false);
   const [todayDetailItem, setTodayDetailItem] = useState<TodaySnapshotItem | null>(null);
   const [todayDetailMachineKey, setTodayDetailMachineKey] = useState<string | null>(null);
@@ -145,7 +149,9 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const rawMapRef = useRef<Record<string, any>>({});
   const tooltipColorMapRef = useRef<Record<string, string>>({});
   const tooltipTextMapRef = useRef<Record<string, string>>({});
+  const [tooltipMapVersion, setTooltipMapVersion] = useState(0);
   const nameCombineMapRef = useRef<Record<string, string>>({});
+  const floorMapShortNameMapRef = useRef<Record<string, string>>({});
   const todaySnapshotMapRef = useRef<Record<string, TodaySnapshotItem>>({});
   const [todayDiffMap, setTodayDiffMap] = useState<Record<string, number>>({});
   const [todaySnapshotDateKey, setTodaySnapshotDateKey] = useState('');
@@ -153,6 +159,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const [todayColumnHeader, setTodayColumnHeader] = useState('本日');
   const [hasTodayDiffData, setHasTodayDiffData] = useState(false);
   const [nameMapReady, setNameMapReady] = useState(false);
+  const [floorMapShortNameVersion, setFloorMapShortNameVersion] = useState(0);
   const lastHorizontalScrollLeftRef = useRef(0);
   // タブ/表示指標切替前後でソート・スクロール状態を引き継ぐためのスナップショット
   const gridUiStateByKeyRef = useRef<Record<string, GridUiStateSnapshot>>({});
@@ -166,12 +173,23 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const [machineUrl, setMachineUrl] = useState<string | null>(null);
   const [machineTooltip, setMachineTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
   const machineTooltipRef = useRef<HTMLDivElement | null>(null);
+  const [hasFloorMap, setHasFloorMap] = useState(false);
+  const [selectedFloorMapDateField, setSelectedFloorMapDateField] = useState('');
+  const [floorMapScale, setFloorMapScale] = useState(1);
+  const floorMapUrl = `/${storeId}/floormap.html`;
 
   const resolveDisplayName = useCallback((name: string) => {
     const raw = String(name ?? '').trim();
     if (!raw) return '';
     return nameCombineMapRef.current[raw] ?? raw;
   }, []);
+
+  const resolveFloorMapDisplayName = useCallback((name: string) => {
+    const raw = String(name ?? '').trim();
+    if (!raw) return '';
+    const normalized = resolveDisplayName(raw);
+    return floorMapShortNameMapRef.current[normalized] ?? floorMapShortNameMapRef.current[raw] ?? normalized;
+  }, [resolveDisplayName]);
 
   const normalizeMachineName = useCallback((item: any) => {
     if (!item || typeof item !== 'object') return item;
@@ -254,6 +272,21 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     });
     return nextMap;
   }, [pickTodayMetricValue]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setHasFloorMap(false);
+    fetch(floorMapUrl, { method: 'GET', cache: 'force-cache' })
+      .then((res) => {
+        if (!cancelled) setHasFloorMap(res.ok);
+      })
+      .catch(() => {
+        if (!cancelled) setHasFloorMap(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [floorMapUrl]);
 
   const applyNumberTotalLabelByMetric = useCallback((rows: any[]) => {
     if (displayMetric !== 'games') return rows;
@@ -430,6 +463,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
         if (cancelled) return;
         tooltipColorMapRef.current = colorMap;
         tooltipTextMapRef.current = textMap;
+        setTooltipMapVersion((v) => v + 1);
         gridRef.current?.api?.refreshCells({ force: true });
       } catch (error) {
         // eslint-disable-next-line no-console
@@ -447,13 +481,18 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     let cancelled = false;
     const loadNameCombineMap = async () => {
       try {
-        const next = await fetchNameCombineMap();
+        const [next, shortNameMap] = await Promise.all([
+          fetchNameCombineMap(),
+          fetchShortNameMap(),
+        ]);
         if (cancelled) return;
         nameCombineMapRef.current = next;
+        floorMapShortNameMapRef.current = shortNameMap;
+        setFloorMapShortNameVersion((v) => v + 1);
         gridRef.current?.api?.refreshCells({ force: true });
       } catch (error) {
         // eslint-disable-next-line no-console
-        console.error('Failed to load config/namecCmbine.map:', error);
+        console.error('Failed to load config name maps:', error);
       } finally {
         if (!cancelled) setNameMapReady(true);
       }
@@ -465,58 +504,54 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     };
   }, [resolveDisplayName]);
 
+  const loadTodaySnapshotData = useCallback(async (isCancelled?: () => boolean) => {
+    try {
+      const nowJst = dayjs().tz('Asia/Tokyo');
+      const todayKey = nowJst.hour() < 8
+        ? nowJst.subtract(1, 'day').format('YYYYMMDD')
+        : nowJst.format('YYYYMMDD');
+      const currentKey = nowJst.format('YYYYMMDD');
+      const nextHeader = todayKey === currentKey ? '本日' : '前日';
+      if (isCancelled?.()) return;
+      setTodaySnapshotDateKey(todayKey);
+      setTodayColumnHeader(nextHeader);
+      const snapshotId = `${storeId}_${todayKey}`;
+      todaySnapshotDocIdRef.current = snapshotId;
+      const snapshotResult = await fetchTodaySnapshotDetailMap(snapshotId);
+      if (isCancelled?.()) return;
+      if (!snapshotResult.exists) {
+        setTodayDiffMap({});
+        setHasTodayDiffData(false);
+        todaySnapshotMapRef.current = {};
+        todaySnapshotDocIdRef.current = '';
+        return;
+      }
+
+      const detailMap = snapshotResult.detailMap;
+      const nextMap = buildTodayMetricMapFromSnapshot(detailMap, displayMetricRef.current);
+      setTodayDiffMap(nextMap);
+      setHasTodayDiffData(Object.keys(nextMap).length > 0);
+      todaySnapshotMapRef.current = detailMap;
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error('Failed to load site777Snapshots:', error);
+      if (isCancelled?.()) return;
+      setTodayDiffMap({});
+      setHasTodayDiffData(false);
+      todaySnapshotMapRef.current = {};
+      setTodaySnapshotDateKey('');
+      todaySnapshotDocIdRef.current = '';
+      setTodayColumnHeader('本日');
+    }
+  }, [buildTodayMetricMapFromSnapshot, storeId]);
+
   useEffect(() => {
     let cancelled = false;
-    const loadTodaySnapshot = async () => {
-      try {
-        const nowJst = dayjs().tz('Asia/Tokyo');
-        const todayKey = nowJst.hour() < 8
-          ? nowJst.subtract(1, 'day').format('YYYYMMDD')
-          : nowJst.format('YYYYMMDD');
-        const currentKey = nowJst.format('YYYYMMDD');
-        const nextHeader = todayKey === currentKey ? '本日' : '前日';
-        if (!cancelled) setTodaySnapshotDateKey(todayKey);
-        if (!cancelled) setTodayColumnHeader(nextHeader);
-        const snapshotId = `${storeId}_${todayKey}`;
-        todaySnapshotDocIdRef.current = snapshotId;
-        const snapshotResult = await fetchTodaySnapshotDetailMap(snapshotId);
-        if (!snapshotResult.exists) {
-          if (!cancelled) {
-            setTodayDiffMap({});
-            setHasTodayDiffData(false);
-            todaySnapshotMapRef.current = {};
-            todaySnapshotDocIdRef.current = '';
-          }
-          return;
-        }
-
-        const detailMap = snapshotResult.detailMap;
-
-        if (!cancelled) {
-          const nextMap = buildTodayMetricMapFromSnapshot(detailMap, displayMetricRef.current);
-          setTodayDiffMap(nextMap);
-          setHasTodayDiffData(Object.keys(nextMap).length > 0);
-          todaySnapshotMapRef.current = detailMap;
-        }
-      } catch (error) {
-        // eslint-disable-next-line no-console
-        console.error('Failed to load site777Snapshots:', error);
-        if (!cancelled) {
-          setTodayDiffMap({});
-          setHasTodayDiffData(false);
-          todaySnapshotMapRef.current = {};
-          setTodaySnapshotDateKey('');
-          todaySnapshotDocIdRef.current = '';
-          setTodayColumnHeader('本日');
-        }
-      }
-    };
-
-    loadTodaySnapshot();
+    void loadTodaySnapshotData(() => cancelled);
     return () => {
       cancelled = true;
     };
-  }, [storeId]);
+  }, [loadTodaySnapshotData]);
 
   useEffect(() => {
     const nextMap = buildTodayMetricMapFromSnapshot(todaySnapshotMapRef.current, displayMetric);
@@ -608,9 +643,139 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   // フィルタ後データ
   const filteredRowData = useMemo(() => {
     if (viewMode === 'tail') return rowData;
+    if (viewMode === 'floor') return rowData;
     if (!selectedName) return rowData;
     return rowData.filter((r) => (r.name ?? r.modelName) === selectedName);
   }, [selectedName, rowData, viewMode]);
+
+  const floorMapDateField = useMemo(() => {
+    const loaded = Array.from(loadedDates).sort();
+    if (loaded.length === 0) return '';
+    return pickEffectiveLatestDate(rawMapRef.current, loaded) || loaded[loaded.length - 1] || '';
+  }, [loadedDates]);
+
+  const floorMapDateOptions = useMemo<FloorMapDateOption[]>(() => {
+    const dateOptions = Array.from(loadedDates)
+      .sort((a, b) => b.localeCompare(a))
+      .map((dateKey) => ({
+        field: dateKey,
+        label: `${dateKey.slice(4, 6)}/${dateKey.slice(6)}`,
+      }));
+    return hasTodayDiffData
+      ? [{ field: 'todayDiff', label: todayColumnHeader }, ...dateOptions]
+      : dateOptions;
+  }, [hasTodayDiffData, loadedDates, todayColumnHeader]);
+
+  const defaultFloorMapDateField = hasTodayDiffData ? 'todayDiff' : floorMapDateField;
+  const floorMapActiveDateField = useMemo(() => {
+    const fields = new Set(floorMapDateOptions.map((option) => option.field));
+    if (selectedFloorMapDateField && fields.has(selectedFloorMapDateField)) {
+      return selectedFloorMapDateField;
+    }
+    if (defaultFloorMapDateField && fields.has(defaultFloorMapDateField)) {
+      return defaultFloorMapDateField;
+    }
+    return floorMapDateOptions[0]?.field ?? '';
+  }, [defaultFloorMapDateField, floorMapDateOptions, selectedFloorMapDateField]);
+
+  useEffect(() => {
+    if (selectedFloorMapDateField === floorMapActiveDateField) return;
+    setSelectedFloorMapDateField(floorMapActiveDateField);
+  }, [floorMapActiveDateField, selectedFloorMapDateField]);
+
+  const floorMapMachineDataByNumber = useMemo<Record<string, FloorMapMachineData>>(() => {
+    if (!floorMapActiveDateField) return {};
+    const next: Record<string, FloorMapMachineData> = {};
+    const hasTargetDateDataByNumber: Record<string, boolean> = {};
+    const getFloorMapFlagColor = (flag: unknown) => {
+      switch (flag) {
+        case 9: return '#FFBFC7';
+        case 6: return '#5bd799';
+        case 5: return '#D3B9DE';
+        case 4: return '#FFE899';
+        default: return undefined;
+      }
+    };
+    const sourceRows = (() => {
+      if (floorMapActiveDateField === 'todayDiff') return numberRowDataRef.current ?? [];
+      const loadedDesc = Array.from(loadedDates).sort((a, b) => b.localeCompare(a));
+      const latestKey = loadedDesc[0];
+      const latest = (latestKey && rawMapRef.current[latestKey]) ? rawMapRef.current[latestKey] : Object.values(rawMapRef.current)[0] ?? {};
+      return transformToGridData(latest, rawMapRef.current);
+    })();
+    const hasFloorMapDateData = (value: unknown) => {
+      if (value === undefined || value === null) return false;
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        return trimmed !== '' && trimmed !== '-';
+      }
+      return true;
+    };
+    (sourceRows ?? []).forEach((row: any) => {
+      if (!row || row?.isTotalRow || row?.machineNumber == null) return;
+      const machineNumber = String(row.machineNumber).trim();
+      if (!machineNumber) return;
+      const rawDiff = row?.[floorMapActiveDateField];
+      const hasSelectedDateData = hasFloorMapDateData(rawDiff);
+      if (!hasSelectedDateData && floorMapDateField && !hasFloorMapDateData(row?.[floorMapDateField])) return;
+      const hasData = hasFloorMapDateData(rawDiff);
+      const existingHasData = hasTargetDateDataByNumber[machineNumber] ?? false;
+      if (next[machineNumber] && existingHasData && !hasData) return;
+      const diff = typeof rawDiff === 'number'
+        ? rawDiff.toLocaleString('ja-JP')
+        : String(rawDiff ?? '-').trim() || '-';
+      next[machineNumber] = {
+        machineNumber,
+        name: resolveFloorMapDisplayName(String(row?.name ?? row?.modelName ?? '')),
+        diff,
+        url: floorMapActiveDateField === 'todayDiff' ? null : row?.urls?.[floorMapActiveDateField] ?? null,
+        flagColor: floorMapActiveDateField === 'todayDiff' ? undefined : getFloorMapFlagColor(row?.flag?.[floorMapActiveDateField]),
+        tooltipColor: tooltipColorMapRef.current[machineNumber],
+      };
+      hasTargetDateDataByNumber[machineNumber] = hasData;
+    });
+    return next;
+  }, [floorMapActiveDateField, floorMapDateField, floorMapShortNameVersion, loadedDates, resolveFloorMapDisplayName, todayDiffMap, tooltipMapVersion]);
+
+  const floorMapMachineOrder = useMemo(() => {
+    return Object.keys(floorMapMachineDataByNumber)
+      .filter((key) => !!key)
+      .sort((a, b) => {
+        const an = Number(a);
+        const bn = Number(b);
+        if (Number.isFinite(an) && Number.isFinite(bn)) return an - bn;
+        return a.localeCompare(b, 'ja');
+      });
+  }, [floorMapMachineDataByNumber]);
+
+  const findMachineRowForDate = useCallback((machineNumber: string, dateField: string) => {
+    const hasFieldData = (value: unknown) => {
+      if (value === undefined || value === null) return false;
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
+        return trimmed !== '' && trimmed !== '-';
+      }
+      return true;
+    };
+    const sourceRows = (() => {
+      if (dateField === 'todayDiff') return numberRowDataRef.current ?? [];
+      const loadedDesc = Array.from(loadedDates).sort((a, b) => b.localeCompare(a));
+      const latestKey = loadedDesc[0];
+      const latest = (latestKey && rawMapRef.current[latestKey]) ? rawMapRef.current[latestKey] : Object.values(rawMapRef.current)[0] ?? {};
+      return transformToGridData(latest, rawMapRef.current);
+    })();
+    let row: any = null;
+    let rowHasData = false;
+    (sourceRows ?? []).forEach((item: any) => {
+      if (!item || item?.isTotalRow || String(item?.machineNumber ?? '').trim() !== machineNumber) return;
+      const hasData = hasFieldData(item?.[dateField]);
+      if (!hasData && floorMapDateField && !hasFieldData(item?.[floorMapDateField])) return;
+      if (row && rowHasData && !hasData) return;
+      row = item;
+      rowHasData = hasData;
+    });
+    return row;
+  }, [floorMapDateField, loadedDates]);
 
   useEffect(() => {
     if (viewMode !== 'number') {
@@ -692,8 +857,30 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     setFlagModalModeOverride(null);
     setFlagModalDetailGalleryItems([]);
     setFlagModalReturnContext(null);
+    flagModalMachineOrderOverrideRef.current = [];
     setModalOpen(true);
   }, []);
+
+  const handleOpenFloorMapMachineDetail = useCallback((machineNumber: string) => {
+    if (!floorMapActiveDateField) return;
+    const row = findMachineRowForDate(machineNumber, floorMapActiveDateField);
+    if (!row) return;
+    const value = row?.[floorMapActiveDateField];
+    const order = floorMapMachineOrder.length > 0 ? floorMapMachineOrder : [machineNumber];
+    if (floorMapActiveDateField === 'todayDiff') {
+      todayMachineOrderRef.current = order;
+      showModal(value, row, 'todayDiff');
+      return;
+    }
+    flagModalMachineOrderOverrideRef.current = order;
+    setSelectedCell({ value, rowData: row, field: floorMapActiveDateField });
+    setSelectedFlag(null);
+    setselectedCellUrl(row?.urls?.[floorMapActiveDateField] ?? null);
+    setFlagModalModeOverride('number');
+    setFlagModalDetailGalleryItems([]);
+    setFlagModalReturnContext(null);
+    setModalOpen(true);
+  }, [findMachineRowForDate, floorMapActiveDateField, floorMapMachineOrder, showModal]);
 
   const getTooltipColor = useCallback((machineNumber: number | string | null | undefined) => {
     if (machineNumber == null) return undefined;
@@ -1121,7 +1308,7 @@ const loadDates = async (dates: string[]) => {
     setColumnDefs(numberColDefsRef.current);
   } else if (viewMode === 'model') {
     buildAndSetGrouped(allLoadedArr, allDisplayData);
-  } else {
+  } else if (viewMode === 'tail') {
     buildAndSetTail(allLoadedArr, allDisplayData);
   }
 
@@ -1396,10 +1583,10 @@ const loadDates = async (dates: string[]) => {
     const currentMetric = displayMetricRef.current;
     captureGridUiState(currentMode, currentMetric);
 
-    const newMode: ViewMode = newValue === 0 ? 'number' : newValue === 1 ? 'model' : 'tail';
+    const newMode: ViewMode = newValue === 0 ? 'number' : newValue === 1 ? 'model' : newValue === 2 ? 'tail' : 'floor';
     queueGridUiRestore(newMode, currentMetric);
     setViewMode(newMode);
-    if (newMode === 'tail') {
+    if (newMode === 'tail' || newMode === 'floor') {
       setSelectedName('');
     }
 
@@ -1407,14 +1594,20 @@ const loadDates = async (dates: string[]) => {
       buildAndSetGrouped();
     } else if (newMode === 'tail') {
       buildAndSetTail();
-    } else {
+    } else if (newMode === 'number') {
       // ★ 台番別に“確実に”戻す（ref に保持していた元データを復元）
       setRowData(numberRowDataRef.current);
       setColumnDefs(numberColDefsRef.current);
     }
   };
 
-  const tabValue = viewMode === 'number' ? 0 : viewMode === 'model' ? 1 : 2;
+  useEffect(() => {
+    if (!hasFloorMap && viewMode === 'floor') {
+      setViewMode('number');
+    }
+  }, [hasFloorMap, viewMode]);
+
+  const tabValue = viewMode === 'number' ? 0 : viewMode === 'model' ? 1 : viewMode === 'tail' ? 2 : 3;
   const groupedRowNeedsExtraHeight = viewMode === 'model' && displayMetric === 'diff' && showGroupedWinStats;
   const currentGridRowHeight = viewMode === 'tail' || groupedRowNeedsExtraHeight ? 34 : 22;
   // 再マウントは「勝率表示スイッチの手動切替時」のみに限定する
@@ -1472,11 +1665,43 @@ const loadDates = async (dates: string[]) => {
     await exportVisibleGridToXlsx({ columnDefs, rowData, storeId });
   };
 
+  const handleRefreshData = async () => {
+    if (refreshing || loadingRef.current) return;
+    const dates = Array.from(loadedDates).sort((a, b) => b.localeCompare(a));
+    const currentMode = viewModeRef.current;
+    const currentMetric = displayMetricRef.current;
+    const currentSnapshot = captureGridUiState(currentMode, currentMetric);
+
+    setRefreshing(true);
+    loadingRef.current = true;
+    try {
+      await loadTodaySnapshotData();
+      if (dates.length === 0) {
+        queueGridUiRestore(currentMode, currentMetric, currentSnapshot);
+        await loadInitialData();
+        return;
+      }
+
+      rawMapRef.current = {};
+      numberRowDataRef.current = [];
+      numberColDefsRef.current = [];
+      setLoadedDates(new Set());
+      queueGridUiRestore(currentMode, currentMetric, currentSnapshot);
+      await loadDates(dates);
+      gridRef.current?.api?.refreshCells({ force: true });
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error('Failed to refresh slot diff data:', error);
+      window.alert('更新に失敗しました。時間をおいて再度お試しください。');
+    } finally {
+      loadingRef.current = false;
+      setRefreshing(false);
+    }
+  };
+
   // 指定台番でフラグモーダルを台番別コンテキストへ切り替える。
   const applyFlagModalNumberSelection = useCallback((machineKey: string, dateField: string) => {
-    const row = (numberRowDataRef.current ?? []).find(
-      (item: any) => !item?.isTotalRow && String(item?.machineNumber ?? '').trim() === machineKey
-    );
+    const row = findMachineRowForDate(machineKey, dateField);
     if (!row) return false;
 
     const detail = flagModalDetailGalleryItems.find((item) => item.machineKey === machineKey);
@@ -1491,7 +1716,7 @@ const loadDates = async (dates: string[]) => {
       setFlagModalDetailHistoryLoading(false);
     }
     return true;
-  }, [flagModalDetailGalleryItems]);
+  }, [findMachineRowForDate, flagModalDetailGalleryItems]);
 
   // 機種別グラフ一覧から台番を選択したとき、同日付の台番別モーダルへ切り替える。
   const handleOpenNumberModalFromModelGallery = useCallback((machineKey: string) => {
@@ -1532,6 +1757,7 @@ const loadDates = async (dates: string[]) => {
     const currentMachineKey = String(selectedCell?.rowData?.machineNumber ?? '').trim();
     if (!currentMachineKey) return;
 
+    const overrideOrder = flagModalMachineOrderOverrideRef.current ?? [];
     const contextOrder = flagModalReturnContext?.machineKeys ?? [];
     const fallbackOrder = (numberRowDataRef.current ?? [])
       .filter((row: any) => !row?.isTotalRow && row?.machineNumber != null)
@@ -1541,7 +1767,7 @@ const loadDates = async (dates: string[]) => {
       })
       .map((row: any) => String(row.machineNumber).trim())
       .filter((v: string) => !!v);
-    const order = contextOrder.length > 0 ? contextOrder : fallbackOrder;
+    const order = overrideOrder.length > 0 ? overrideOrder : contextOrder.length > 0 ? contextOrder : fallbackOrder;
     if (order.length <= 1) return;
 
     const currentIndex = order.indexOf(currentMachineKey);
@@ -1598,6 +1824,7 @@ const loadDates = async (dates: string[]) => {
     setFlagModalDetailHistoryLoading(false);
     setFlagModalDetailGalleryItems([]);
     setFlagModalReturnContext(null);
+    flagModalMachineOrderOverrideRef.current = [];
   }, [flagModalEffectiveMode, flagModalReturnContext]);
 
   // 選択セルのURLを使って「台データ」モーダルを開く。
@@ -1694,6 +1921,7 @@ const loadDates = async (dates: string[]) => {
 
         setModalOpen(false);
         setFlagModalReturnContext(null);
+        flagModalMachineOrderOverrideRef.current = [];
         setSelectedComment('');
         gridRef.current?.api?.refreshCells({ force: true });
         return;
@@ -1730,6 +1958,7 @@ const loadDates = async (dates: string[]) => {
 
       setModalOpen(false);
       setFlagModalReturnContext(null);
+      flagModalMachineOrderOverrideRef.current = [];
       setSelectedComment('');
 
       const api = gridRef.current?.api;
@@ -1821,24 +2050,45 @@ const loadDates = async (dates: string[]) => {
               fontSize: '0.8rem' // フォントサイズ調整
             }}
           />
-          <Tab label="機種別（平均）" 
+          <Tab label="機種別" 
             sx={{
               minHeight: 24,     // ★ タブ本体の高さを下げる
               paddingY: 0,       // ★ 上下の余白をゼロに
               fontSize: '0.8rem' // フォントサイズ調整
             }}
           />
-          <Tab label="末尾別（平均）" 
+          <Tab label="末尾別" 
             sx={{
               minHeight: 24,
               paddingY: 0,
               fontSize: '0.8rem'
             }}
           />
+          {hasFloorMap ? (
+            <Tab label="マップ"
+              sx={{
+                minHeight: 24,
+                paddingY: 0,
+                fontSize: '0.8rem'
+              }}
+            />
+          ) : null}
         </Tabs>
       </Box>
 
       <div style={{ flex: 1, minHeight: 0, width: '100%' }}>
+        {viewMode === 'floor' ? (
+          <FloorMapView
+            htmlUrl={floorMapUrl}
+            machineDataByNumber={floorMapMachineDataByNumber}
+            dateOptions={floorMapDateOptions}
+            activeDateField={floorMapActiveDateField}
+            onDateFieldChange={setSelectedFloorMapDateField}
+            scale={floorMapScale}
+            onScaleChange={setFloorMapScale}
+            onOpenMachineData={handleOpenFloorMapMachineDetail}
+          />
+        ) : (
         <div className="ag-theme-alpine" style={{ height: '100%', width: '100%' }}>
           <AgGridReact
             key={gridRenderKey}
@@ -1896,124 +2146,228 @@ const loadDates = async (dates: string[]) => {
             domLayout="normal"
           />
         </div>
+        )}
       </div>
 
       {/* フィルタ（機種名） */}
-      <div style={{ marginTop: 6, marginBottom: 6, minHeight: 36, flexShrink: 0, display: 'flex', alignItems: 'center' }}>
-      {viewMode !== 'tail' ? (
-        <FormControl variant="outlined" fullWidth style={{ width: 'min(240px, 50vw)' }}>
-          <Select
-            labelId="machine-select-label"
-            value={selectedName}
-            onChange={handleSelectChange}
-            displayEmpty
-            sx={{
-              height: 30,
-              fontSize: '0.8em',
-            }}
-          >
-            <MenuItem value="" selected>
-              <em>すべての機種を表示</em>
-            </MenuItem>
-            {Array.from(
-              new Set(
-                rowData
-                  .map((r) => r.name ?? r.modelName)
-                  .filter((v) => !!v)
-              )
-            )
-              .sort((a: any, b: any) => String(a).localeCompare(String(b), 'ja'))
-              .map((name: any) => (
-                <MenuItem key={name} value={name}>
-                  {name}
+      <div
+        style={{
+          marginTop: 6,
+          marginBottom: 6,
+          minHeight: 36,
+          flexShrink: 0,
+          display: 'grid',
+          gridTemplateColumns: 'minmax(0, 1fr) auto',
+          alignItems: 'center',
+          columnGap: 8,
+        }}
+      >
+        <div style={{ minWidth: 0 }}>
+          {viewMode === 'floor' ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <button
+                type="button"
+                onClick={() => setFloorMapScale((v) => Math.max(0.5, Math.round((v - 0.1) * 10) / 10))}
+                style={{ height: 30, minWidth: 30, padding: '0 8px' }}
+              >
+                -
+              </button>
+              <span style={{ minWidth: 48, textAlign: 'center', fontSize: 12 }}>
+                {Math.round(floorMapScale * 100)}%
+              </span>
+              <button
+                type="button"
+                onClick={() => setFloorMapScale((v) => Math.min(2.5, Math.round((v + 0.1) * 10) / 10))}
+                style={{ height: 30, minWidth: 30, padding: '0 8px' }}
+              >
+                +
+              </button>
+              <button
+                type="button"
+                onClick={() => setFloorMapScale(1)}
+                style={{ height: 30, minWidth: 56, padding: '0 8px' }}
+              >
+                100%
+              </button>
+            </div>
+          ) : viewMode !== 'tail' ? (
+            <FormControl variant="outlined" fullWidth style={{ width: '100%', maxWidth: 240 }}>
+              <Select
+                labelId="machine-select-label"
+                value={selectedName}
+                onChange={handleSelectChange}
+                displayEmpty
+                sx={{
+                  height: 30,
+                  fontSize: '0.8em',
+                }}
+              >
+                <MenuItem value="" selected>
+                  <em>すべての機種を表示</em>
                 </MenuItem>
-              ))}
-          </Select>
-        </FormControl>
-      ) : <div style={{ width: 'min(240px, 50vw)' }} />}
+                {Array.from(
+                  new Set(
+                    rowData
+                      .map((r) => r.name ?? r.modelName)
+                      .filter((v) => !!v)
+                  )
+                )
+                  .sort((a: any, b: any) => String(a).localeCompare(String(b), 'ja'))
+                  .map((name: any) => (
+                    <MenuItem key={name} value={name}>
+                      {name}
+                    </MenuItem>
+                  ))}
+              </Select>
+            </FormControl>
+          ) : null}
+        </div>
 
-      <Button
-        variant="outlined"
-        onClick={handleToggleDisplayMetric}
-        sx={{
-          marginLeft: 1,
-          height: 30,
-          minWidth: 0,
-          padding: '0 10px',
-          borderRadius: 1,
-          textTransform: 'none',
-          fontSize: '0.78rem',
-          fontWeight: 700,
-          color: '#1565c0',
-          borderColor: '#90caf9',
-          '&:hover': {
-            borderColor: '#64b5f6',
-            backgroundColor: 'rgba(100,181,246,0.12)',
-          },
-        }}
-      >
-        {displayMetric === 'diff' ? '差枚' : '回転数'}
-      </Button>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, minWidth: 0 }}>
+          {viewMode !== 'floor' ? (
+            <Button
+              variant="outlined"
+              onClick={handleToggleDisplayMetric}
+              sx={{
+                flexShrink: 0,
+                height: 30,
+                minWidth: 56,
+                padding: '0 10px',
+                borderRadius: 1,
+                textTransform: 'none',
+                whiteSpace: 'nowrap',
+                fontSize: '0.78rem',
+                fontWeight: 700,
+                color: '#1565c0',
+                borderColor: '#90caf9',
+                '&:hover': {
+                  borderColor: '#64b5f6',
+                  backgroundColor: 'rgba(100,181,246,0.12)',
+                },
+              }}
+            >
+              {displayMetric === 'diff' ? '差枚' : '回転数'}
+            </Button>
+          ) : null}
 
-      {viewMode === 'model' ? (
-        <Box sx={{ marginLeft: 0.5, display: 'flex', alignItems: 'center', lineHeight: 0 }}>
-          <Android12LineSpacingSwitch
-            checked={displayMetric === 'diff' && showGroupedWinStats}
-            onChange={(e) => {
-              const currentMode = viewModeRef.current;
-              const currentMetric = displayMetricRef.current;
-              const currentSnapshot = captureGridUiState(currentMode, currentMetric);
-              queueGridUiRestore(currentMode, currentMetric, currentSnapshot);
-              const nextChecked = e.target.checked;
-              if (nextChecked !== showGroupedWinStatsRef.current) {
-                setGridRemountNonce((prev) => prev + 1);
-              }
-              showGroupedWinStatsRef.current = nextChecked;
-              setShowGroupedWinStats(nextChecked);
-            }}
-            disabled={displayMetric === 'games'}
-          />
-        </Box>
-      ) : null}
+          {viewMode === 'model' ? (
+            <Box sx={{ flexShrink: 0, display: 'flex', alignItems: 'center', lineHeight: 0 }}>
+              <Android12LineSpacingSwitch
+                checked={displayMetric === 'diff' && showGroupedWinStats}
+                onChange={(e) => {
+                  const currentMode = viewModeRef.current;
+                  const currentMetric = displayMetricRef.current;
+                  const currentSnapshot = captureGridUiState(currentMode, currentMetric);
+                  queueGridUiRestore(currentMode, currentMetric, currentSnapshot);
+                  const nextChecked = e.target.checked;
+                  if (nextChecked !== showGroupedWinStatsRef.current) {
+                    setGridRemountNonce((prev) => prev + 1);
+                  }
+                  showGroupedWinStatsRef.current = nextChecked;
+                  setShowGroupedWinStats(nextChecked);
+                }}
+                disabled={displayMetric === 'games'}
+              />
+            </Box>
+          ) : null}
 
-      <Button
-        variant="contained"
-        onClick={handleExportXlsx}
-        aria-label="Excel出力"
-        sx={{
-          marginLeft: 1.25,
-          minWidth: 0,
-          height: 30,
-          width: 34,
-          padding: 0,
-          borderRadius: 1,
-          textTransform: 'none',
-          backgroundColor: '#1D6F42',
-          color: '#fff',
-          '&:hover': {
-            backgroundColor: '#155A33',
-          },
-        }}
-      >
-        <span
-          style={{
-            display: 'inline-flex',
-            width: 14,
-            height: 14,
-            alignItems: 'center',
-            justifyContent: 'center',
-            borderRadius: 2,
-            backgroundColor: '#0F4C2E',
-            border: '1px solid rgba(255,255,255,0.42)',
-            fontSize: 10,
-            fontWeight: 800,
-            lineHeight: 1,
-            color: '#fff',
-          }}
-        >
-          X
-        </span>
-      </Button>
+          {viewMode !== 'floor' ? (
+            <>
+              <Button
+                variant="contained"
+                onClick={handleExportXlsx}
+                aria-label="Excel出力"
+                sx={{
+                  flexShrink: 0,
+                  minWidth: 0,
+                  height: 30,
+                  width: 34,
+                  padding: 0,
+                  borderRadius: 1,
+                  textTransform: 'none',
+                  backgroundColor: '#1D6F42',
+                  color: '#fff',
+                  '&:hover': {
+                    backgroundColor: '#155A33',
+                  },
+                }}
+              >
+                <span
+                  style={{
+                    display: 'inline-flex',
+                    width: 14,
+                    height: 14,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderRadius: 2,
+                    backgroundColor: '#0F4C2E',
+                    border: '1px solid rgba(255,255,255,0.42)',
+                    fontSize: 10,
+                    fontWeight: 800,
+                    lineHeight: 1,
+                    color: '#fff',
+                  }}
+                >
+                  X
+                </span>
+              </Button>
+              <Button
+                variant="contained"
+                onClick={() => void handleRefreshData()}
+                disabled={refreshing}
+                aria-label="データ更新"
+                title="データ更新"
+                sx={{
+                  flexShrink: 0,
+                  minWidth: 0,
+                  height: 30,
+                  width: 30,
+                  padding: 0,
+                  borderRadius: '50%',
+                  textTransform: 'none',
+                  backgroundColor: '#1976d2',
+                  color: '#fff',
+                  '&:hover': {
+                    backgroundColor: '#1565c0',
+                  },
+                  '&.Mui-disabled': {
+                    backgroundColor: '#90caf9',
+                    color: '#fff',
+                  },
+                }}
+              >
+                <svg
+                  width="17"
+                  height="17"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  focusable="false"
+                  style={{
+                    display: 'block',
+                    transform: refreshing ? 'rotate(90deg)' : 'none',
+                    transition: 'transform 160ms ease',
+                  }}
+                >
+                  <path
+                    d="M20 11a8 8 0 1 0-2.34 5.66"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.4"
+                    strokeLinecap="round"
+                  />
+                  <path
+                    d="M20 4v7h-7"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </Button>
+            </>
+          ) : null}
+        </div>
       </div>
       </div>
 

@@ -1,7 +1,7 @@
 // SlotDiffGrid 周辺で共有する型定義。
 // 画面本体とユーティリティの依存を薄くし、責務を明確化する。
 
-export type ViewMode = 'number' | 'model' | 'tail'; // 台番別 / 機種別（平均）/ 末尾別
+export type ViewMode = 'number' | 'model' | 'tail' | 'floor'; // 台番別 / 機種別（平均）/ 末尾別 / フロアマップ
 
 export type TodayOatariHistoryRow = {
   count?: string;
