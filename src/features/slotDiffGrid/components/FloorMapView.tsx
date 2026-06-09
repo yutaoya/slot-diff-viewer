@@ -6,6 +6,7 @@ type FloorMapMachineData = {
   diff: string;
   url: string | null;
   flagColor?: string;
+  settingHeatmapColor?: string;
   tooltipColor?: string;
 };
 
@@ -275,8 +276,9 @@ export const FloorMapView: React.FC<Props> = ({
       const target = verticalTarget ?? horizontalTarget;
 
       if (!target) return;
-      writeDataCell(target.machine, data.name, 'floor-map-machine-name', data.flagColor, machineNumber);
-      writeDiffCell(target.diff, data.diff, data.flagColor, machineNumber);
+      const dataBackgroundColor = data.flagColor ?? data.settingHeatmapColor;
+      writeDataCell(target.machine, data.name, 'floor-map-machine-name', dataBackgroundColor, machineNumber);
+      writeDiffCell(target.diff, data.diff, dataBackgroundColor, machineNumber);
     });
     return doc.body.innerHTML;
   }, [html, machineDataByNumber]);

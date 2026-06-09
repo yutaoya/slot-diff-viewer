@@ -54,6 +54,7 @@ export function compareNumericCellValues(
  * @param resolveDisplayName 機種名正規化関数
  * @param getTooltipColor 台番号ごとの背景色取得関数
  * @param getTooltipText 台番号ごとのツールチップ文言取得関数
+ * @param getSettingHeatmapColor 日付フィールド別の設定判別ヒートマップ色取得関数
  */
 export function buildNumberColumns(
   dates: string[],
@@ -64,7 +65,8 @@ export function buildNumberColumns(
   hasTodayDiffData: boolean,
   resolveDisplayName: (name: string) => string,
   getTooltipColor: (machineNumber: number | string | null | undefined) => string | undefined,
-  getTooltipText: (machineNumber: number | string | null | undefined) => string | undefined
+  getTooltipText: (machineNumber: number | string | null | undefined) => string | undefined,
+  getSettingHeatmapColor: (row: any, field: string) => string | undefined = () => undefined
 ): ColDef[] {
   const existingFields = new Set(existing.map(c => c.field));
   const cols: ColDef[] = [];
@@ -187,6 +189,10 @@ export function buildNumberColumns(
           base.color = '#666';
           return base;
         }
+        const settingHeatmapColor = getSettingHeatmapColor(p.data, 'todayDiff');
+        if (settingHeatmapColor) {
+          base.backgroundColor = settingHeatmapColor;
+        }
         return base;
       },
     });
@@ -236,6 +242,13 @@ export function buildNumberColumns(
           default: break;
         }
 
+        if (!backgroundColor) {
+          const settingHeatmapColor = getSettingHeatmapColor(row, field);
+          if (settingHeatmapColor) {
+            backgroundColor = settingHeatmapColor;
+          }
+        }
+
         return {
           color,
           fontSize: '0.8em',
@@ -263,6 +276,7 @@ export function buildNumberColumns(
  * @param hasTodayDiffData 本日列を表示可能か
  * @param resolveDisplayName 機種名正規化関数
  * @param displayMetric 表示指標（差枚/回転数）
+ * @param getSettingHeatmapColor 日付フィールド別の設定判別ヒートマップ色取得関数
  */
 export function buildGroupedColumnsForDates(
   dates: string[],
@@ -272,7 +286,8 @@ export function buildGroupedColumnsForDates(
   todayColumnHeader: string,
   hasTodayDiffData: boolean,
   resolveDisplayName: (name: string) => string,
-  displayMetric: DisplayMetric
+  displayMetric: DisplayMetric,
+  getSettingHeatmapColor: (row: any, field: string) => string | undefined = () => undefined
 ): ColDef[] {  const existingFields = new Set(existing.map(c => c.field));
   const cols: ColDef[] = [];
 
@@ -377,6 +392,11 @@ export function buildGroupedColumnsForDates(
         if (!p.data?.isTotalRow && isMissingLatest(p.data)) {
           base.backgroundColor = '#e0e0e0';
           base.color = '#666';
+          return base;
+        }
+        const settingHeatmapColor = getSettingHeatmapColor(p.data, 'todayDiff');
+        if (settingHeatmapColor) {
+          base.backgroundColor = settingHeatmapColor;
         }
         return base;
       },
@@ -416,6 +436,13 @@ export function buildGroupedColumnsForDates(
         color = '#666';
         if (!backgroundColor) {
           backgroundColor = '#e0e0e0';
+        }
+      }
+
+      if (!backgroundColor) {
+        const settingHeatmapColor = getSettingHeatmapColor(row, field);
+        if (settingHeatmapColor) {
+          backgroundColor = settingHeatmapColor;
         }
       }
 

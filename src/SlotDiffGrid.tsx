@@ -49,6 +49,15 @@ import { Android12LineSpacingSwitch } from './features/slotDiffGrid/Android12Lin
 import { buildTodayGalleryStats } from './features/slotDiffGrid/todayGalleryStats';
 import { exportVisibleGridToXlsx } from './features/slotDiffGrid/gridExportUtils';
 import {
+  applyJugglerSettingHeatmapScoresToGroupedRows,
+  applyJugglerSettingHeatmapScoresToNumberRows,
+  averageJugglerSettingHeatmapScore,
+  buildJugglerSettingHeatmapScoreMap,
+  buildJugglerSettingHeatmapScoreMapsByDate,
+  getJugglerSettingHeatmapScoreFromRow,
+  getJugglerSettingHeatmapColorByScore,
+} from './features/slotDiffGrid/jugglerSettingHeatmap';
+import {
   fetchNameCombineMap,
   fetchSnapshotDetailFromOatariSubcollection,
   fetchOatariHistorySubcollection,
@@ -60,6 +69,7 @@ import {
   updateNumberModeFlagsAndComment,
 } from './features/slotDiffGrid/slotDiffRepository';
 import { FlagSettingModal } from './features/slotDiffGrid/components/FlagSettingModal';
+import { JugglerSettingEstimatePanel } from './features/slotDiffGrid/components/JugglerSettingEstimatePanel';
 import { MachineDataModal } from './features/slotDiffGrid/components/MachineDataModal';
 import { FloorMapView, type FloorMapDateOption, type FloorMapMachineData } from './features/slotDiffGrid/components/FloorMapView';
 
@@ -68,6 +78,27 @@ dayjs.extend(timezone);
 
 // AG Grid モジュール登録
 ModuleRegistry.registerModules([ClientSideRowModelModule, RowStyleModule, CellStyleModule]);
+
+const JugglerHeatmapIcon: React.FC<{ active: boolean }> = ({ active }) => {
+  return (
+    <span
+      className="material-symbols-rounded"
+      aria-hidden="true"
+      style={{
+        display: 'block',
+        width: 20,
+        height: 20,
+        overflow: 'hidden',
+        color: active ? '#fff' : '#7c8797',
+        fontSize: 20,
+        lineHeight: '20px',
+        fontVariationSettings: "'FILL' 1, 'wght' 600, 'GRAD' 0, 'opsz' 20",
+      }}
+    >
+      mode_heat
+    </span>
+  );
+};
 
 interface Props {
   storeId: string;
@@ -95,6 +126,8 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const viewModeRef = useRef<ViewMode>('number');
   const [displayMetric, setDisplayMetric] = useState<DisplayMetric>('diff');
   const displayMetricRef = useRef<DisplayMetric>('diff');
+  const [showJugglerHeatmap, setShowJugglerHeatmap] = useState(false);
+  const showJugglerHeatmapRef = useRef(false);
   const [showGroupedWinStats, setShowGroupedWinStats] = useState(false);
   const showGroupedWinStatsRef = useRef(false);
   const [gridRemountNonce, setGridRemountNonce] = useState(0);
@@ -153,6 +186,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const nameCombineMapRef = useRef<Record<string, string>>({});
   const floorMapShortNameMapRef = useRef<Record<string, string>>({});
   const todaySnapshotMapRef = useRef<Record<string, TodaySnapshotItem>>({});
+  const todaySettingHeatmapScoreMapRef = useRef<Record<string, number>>({});
   const [todayDiffMap, setTodayDiffMap] = useState<Record<string, number>>({});
   const [todaySnapshotDateKey, setTodaySnapshotDateKey] = useState('');
   const todaySnapshotDocIdRef = useRef('');
@@ -506,6 +540,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
 
   const loadTodaySnapshotData = useCallback(async (isCancelled?: () => boolean) => {
     try {
+      todaySettingHeatmapScoreMapRef.current = {};
       const nowJst = dayjs().tz('Asia/Tokyo');
       const todayKey = nowJst.hour() < 8
         ? nowJst.subtract(1, 'day').format('YYYYMMDD')
@@ -523,6 +558,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
         setTodayDiffMap({});
         setHasTodayDiffData(false);
         todaySnapshotMapRef.current = {};
+        todaySettingHeatmapScoreMapRef.current = {};
         todaySnapshotDocIdRef.current = '';
         return;
       }
@@ -532,6 +568,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
       setTodayDiffMap(nextMap);
       setHasTodayDiffData(Object.keys(nextMap).length > 0);
       todaySnapshotMapRef.current = detailMap;
+      todaySettingHeatmapScoreMapRef.current = buildJugglerSettingHeatmapScoreMap(detailMap);
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error('Failed to load site777Snapshots:', error);
@@ -539,6 +576,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
       setTodayDiffMap({});
       setHasTodayDiffData(false);
       todaySnapshotMapRef.current = {};
+      todaySettingHeatmapScoreMapRef.current = {};
       setTodaySnapshotDateKey('');
       todaySnapshotDocIdRef.current = '';
       setTodayColumnHeader('本日');
@@ -683,6 +721,37 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     setSelectedFloorMapDateField(floorMapActiveDateField);
   }, [floorMapActiveDateField, selectedFloorMapDateField]);
 
+  const getTodaySettingHeatmapColor = useCallback((row: any) => {
+    if (!row || row.isTotalRow) return undefined;
+    const machineNumbers = Array.isArray(row?.machineNumbers)
+      ? row.machineNumbers
+      : row?.machineNumber != null
+        ? [row.machineNumber]
+        : [];
+    const score = averageJugglerSettingHeatmapScore(machineNumbers, todaySettingHeatmapScoreMapRef.current);
+    return getJugglerSettingHeatmapColorByScore(score);
+  }, []);
+
+  const getSettingHeatmapColor = useCallback((row: any, field: string) => {
+    if (!showJugglerHeatmapRef.current) return undefined;
+    if (field === 'todayDiff') {
+      return getTodaySettingHeatmapColor(row);
+    }
+    const score = getJugglerSettingHeatmapScoreFromRow(row, field);
+    return getJugglerSettingHeatmapColorByScore(score);
+  }, [getTodaySettingHeatmapColor]);
+
+  const handleToggleJugglerHeatmap = useCallback(() => {
+    const next = !showJugglerHeatmapRef.current;
+    showJugglerHeatmapRef.current = next;
+    setShowJugglerHeatmap(next);
+    setColumnDefs((prev) => [...prev]);
+    numberColDefsRef.current = [...numberColDefsRef.current];
+    requestAnimationFrame(() => {
+      gridRef.current?.api?.refreshCells({ force: true });
+    });
+  }, []);
+
   const floorMapMachineDataByNumber = useMemo<Record<string, FloorMapMachineData>>(() => {
     if (!floorMapActiveDateField) return {};
     const next: Record<string, FloorMapMachineData> = {};
@@ -701,7 +770,10 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
       const loadedDesc = Array.from(loadedDates).sort((a, b) => b.localeCompare(a));
       const latestKey = loadedDesc[0];
       const latest = (latestKey && rawMapRef.current[latestKey]) ? rawMapRef.current[latestKey] : Object.values(rawMapRef.current)[0] ?? {};
-      return transformToGridData(latest, rawMapRef.current);
+      return applyJugglerSettingHeatmapScoresToNumberRows(
+        transformToGridData(latest, rawMapRef.current),
+        buildJugglerSettingHeatmapScoreMapsByDate(rawMapRef.current)
+      );
     })();
     const hasFloorMapDateData = (value: unknown) => {
       if (value === undefined || value === null) return false;
@@ -730,12 +802,13 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
         diff,
         url: floorMapActiveDateField === 'todayDiff' ? null : row?.urls?.[floorMapActiveDateField] ?? null,
         flagColor: floorMapActiveDateField === 'todayDiff' ? undefined : getFloorMapFlagColor(row?.flag?.[floorMapActiveDateField]),
+        settingHeatmapColor: getSettingHeatmapColor(row, floorMapActiveDateField),
         tooltipColor: tooltipColorMapRef.current[machineNumber],
       };
       hasTargetDateDataByNumber[machineNumber] = hasData;
     });
     return next;
-  }, [floorMapActiveDateField, floorMapDateField, floorMapShortNameVersion, loadedDates, resolveFloorMapDisplayName, todayDiffMap, tooltipMapVersion]);
+  }, [floorMapActiveDateField, floorMapDateField, floorMapShortNameVersion, getSettingHeatmapColor, loadedDates, resolveFloorMapDisplayName, showJugglerHeatmap, todayDiffMap, tooltipMapVersion]);
 
   const floorMapMachineOrder = useMemo(() => {
     return Object.keys(floorMapMachineDataByNumber)
@@ -1278,6 +1351,10 @@ const loadDates = async (dates: string[]) => {
     todayDiffMap,
     todaySnapshotDateKey
   );
+  numberRowDataRef.current = applyJugglerSettingHeatmapScoresToNumberRows(
+    numberRowDataRef.current,
+    buildJugglerSettingHeatmapScoreMapsByDate(rawMapRef.current)
+  );
 
   // ★ 実効的な最新日付が見つかった場合のみ「欠損を下へ」並べ替え
   if (effectiveLatestDate) {
@@ -1297,7 +1374,8 @@ const loadDates = async (dates: string[]) => {
     hasTodayDiffData,
     resolveDisplayName,
     getTooltipColor,
-    getTooltipText
+    getTooltipText,
+    getSettingHeatmapColor
   );
 
   numberColDefsRef.current = [...numberColDefsRef.current, ...newCols];
@@ -1474,13 +1552,19 @@ const loadDates = async (dates: string[]) => {
 
     // あなたの transform に合わせる（機種名＋各日付の平均差枚、台番は空欄）
     const effectiveLatestDate = pickEffectiveLatestDate(allData, loaded);
+    const settingHeatmapScoreMapsByDate = buildJugglerSettingHeatmapScoreMapsByDate(rawMapRef.current);
     let groupedRows = transformToGroupedGridData(latest, allData);
     groupedRows = applyGroupedTotalLabelByMetric(groupedRows);
     if (displayMetric === 'diff') {
       groupedRows = applyGroupedDateMetricCells(groupedRows, allData);
     }
-    const groupedWithToday = applyTodayDiffToGroupedRows(
+    const groupedWithSettingHeatmap = applyJugglerSettingHeatmapScoresToGroupedRows(
       groupedRows,
+      rawMapRef.current,
+      settingHeatmapScoreMapsByDate
+    );
+    const groupedWithToday = applyTodayDiffToGroupedRows(
+      groupedWithSettingHeatmap,
       numberRowDataRef.current,
       effectiveLatestDate || '',
       displayMetric === 'diff'
@@ -1496,7 +1580,8 @@ const loadDates = async (dates: string[]) => {
       todayColumnHeader,
       hasTodayDiffData,
       resolveDisplayName,
-      displayMetric
+      displayMetric,
+      getSettingHeatmapColor
     );
     setColumnDefs(groupedCols);
   };
@@ -1544,6 +1629,10 @@ const loadDates = async (dates: string[]) => {
       todayDiffMap,
       todaySnapshotDateKey
     );
+    numberRows = applyJugglerSettingHeatmapScoresToNumberRows(
+      numberRows,
+      buildJugglerSettingHeatmapScoreMapsByDate(rawMapRef.current)
+    );
     const effectiveLatestDate = pickEffectiveLatestDate(allDataForDisplay, loadedArr);
     if (effectiveLatestDate) {
       numberRows = sortByLatestMissing(numberRows, effectiveLatestDate);
@@ -1561,7 +1650,8 @@ const loadDates = async (dates: string[]) => {
       hasTodayDiffData,
       resolveDisplayName,
       getTooltipColor,
-      getTooltipText
+      getTooltipText,
+      getSettingHeatmapColor
     );
 
     if (viewModeRef.current === 'number') {
@@ -2189,37 +2279,93 @@ const loadDates = async (dates: string[]) => {
               >
                 100%
               </button>
-            </div>
-          ) : viewMode !== 'tail' ? (
-            <FormControl variant="outlined" fullWidth style={{ width: '100%', maxWidth: 240 }}>
-              <Select
-                labelId="machine-select-label"
-                value={selectedName}
-                onChange={handleSelectChange}
-                displayEmpty
+              <Button
+                variant={showJugglerHeatmap ? 'contained' : 'outlined'}
+                onClick={handleToggleJugglerHeatmap}
+                aria-label="ジャグラーヒートマップ"
+                aria-pressed={showJugglerHeatmap}
+                title={showJugglerHeatmap ? 'ジャグラーヒートマップ ON' : 'ジャグラーヒートマップ OFF'}
                 sx={{
+                  flexShrink: 0,
+                  minWidth: 0,
+                  width: 30,
                   height: 30,
-                  fontSize: '0.8em',
+                  padding: 0,
+                  borderRadius: 1,
+                  borderColor: showJugglerHeatmap ? '#d32f2f' : '#b8c0cc',
+                  backgroundColor: showJugglerHeatmap ? '#d32f2f' : '#fff',
+                  color: showJugglerHeatmap ? '#fff' : '#5f6877',
+                  boxShadow: 'none',
+                  '&:hover': {
+                    borderColor: showJugglerHeatmap ? '#b71c1c' : '#8d96a6',
+                    backgroundColor: showJugglerHeatmap ? '#c62828' : '#f5f7fa',
+                    boxShadow: 'none',
+                  },
                 }}
               >
-                <MenuItem value="" selected>
-                  <em>すべての機種を表示</em>
-                </MenuItem>
-                {Array.from(
-                  new Set(
-                    rowData
-                      .map((r) => r.name ?? r.modelName)
-                      .filter((v) => !!v)
+                <JugglerHeatmapIcon active={showJugglerHeatmap} />
+              </Button>
+            </div>
+          ) : viewMode !== 'tail' ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', maxWidth: 278 }}>
+              <FormControl variant="outlined" fullWidth style={{ width: '100%', maxWidth: 240, minWidth: 0 }}>
+                <Select
+                  labelId="machine-select-label"
+                  value={selectedName}
+                  onChange={handleSelectChange}
+                  displayEmpty
+                  sx={{
+                    height: 30,
+                    fontSize: '0.8em',
+                  }}
+                >
+                  <MenuItem value="" selected>
+                    <em>すべての機種を表示</em>
+                  </MenuItem>
+                  {Array.from(
+                    new Set(
+                      rowData
+                        .map((r) => r.name ?? r.modelName)
+                        .filter((v) => !!v)
+                    )
                   )
-                )
-                  .sort((a: any, b: any) => String(a).localeCompare(String(b), 'ja'))
-                  .map((name: any) => (
-                    <MenuItem key={name} value={name}>
-                      {name}
-                    </MenuItem>
-                  ))}
-              </Select>
-            </FormControl>
+                    .sort((a: any, b: any) => String(a).localeCompare(String(b), 'ja'))
+                    .map((name: any) => (
+                      <MenuItem key={name} value={name}>
+                        {name}
+                      </MenuItem>
+                    ))}
+                </Select>
+              </FormControl>
+              {viewMode === 'number' ? (
+                <Button
+                  variant={showJugglerHeatmap ? 'contained' : 'outlined'}
+                  onClick={handleToggleJugglerHeatmap}
+                  aria-label="ジャグラーヒートマップ"
+                  aria-pressed={showJugglerHeatmap}
+                  title={showJugglerHeatmap ? 'ジャグラーヒートマップ ON' : 'ジャグラーヒートマップ OFF'}
+                  sx={{
+                    flexShrink: 0,
+                    minWidth: 0,
+                    width: 30,
+                    height: 30,
+                    padding: 0,
+                    borderRadius: 1,
+                    borderColor: showJugglerHeatmap ? '#d32f2f' : '#b8c0cc',
+                    backgroundColor: showJugglerHeatmap ? '#d32f2f' : '#fff',
+                    color: showJugglerHeatmap ? '#fff' : '#5f6877',
+                    boxShadow: 'none',
+                    '&:hover': {
+                      borderColor: showJugglerHeatmap ? '#b71c1c' : '#8d96a6',
+                      backgroundColor: showJugglerHeatmap ? '#c62828' : '#f5f7fa',
+                      boxShadow: 'none',
+                    },
+                  }}
+                >
+                  <JugglerHeatmapIcon active={showJugglerHeatmap} />
+                </Button>
+              ) : null}
+            </div>
           ) : null}
         </div>
 
@@ -2533,6 +2679,8 @@ const loadDates = async (dates: string[]) => {
               <div>本日差枚: {todayDetailItem.currentDifference ?? '-'}</div>
               <div>更新: {todayDetailItem.dataUpdatedAt ?? '-'}</div>
             </div>
+
+            <JugglerSettingEstimatePanel snapshot={todayDetailItem} />
 
             <div style={{ marginTop: 4 }}>
               <div style={{ fontWeight: 700, marginBottom: 6 }}>

@@ -2,6 +2,7 @@ import { Button, Input, Modal, Radio } from 'antd';
 import { useEffect, useState, type FC } from 'react';
 import { useSwipeable } from 'react-swipeable';
 import type { TodayGalleryStats, TodayOatariHistoryRow, TodaySnapshotItem, ViewMode } from '../types';
+import { JugglerSettingEstimatePanel } from './JugglerSettingEstimatePanel';
 
 type SelectedCell = { rowData: any; field: string; value: any } | null;
 
@@ -120,6 +121,14 @@ export const FlagSettingModal: FC<Props> = ({
 
   const summaryLabel = viewMode === 'model' ? '平均差枚' : '差枚';
   const summaryValue = formatDiffLikeValue(selectedCell?.value);
+  const detailSnapshotForEstimate: TodaySnapshotItem | null = detailSnapshot
+    ? {
+        ...detailSnapshot,
+        machineNumber: detailSnapshot.machineNumber ?? selectedCell?.rowData?.machineNumber,
+        name: detailSnapshot.name ?? selectedCell?.rowData?.name ?? selectedCell?.rowData?.modelName,
+        currentDifference: detailSnapshot.currentDifference ?? selectedCell?.value,
+      }
+    : null;
   const metaRowStyle = { margin: '10px 0', lineHeight: 1.3 };
   const metaLabelStyle = { display: 'inline-block', width: '4em' };
   const renderMetaRow = (label: string, value: unknown) => {
@@ -349,6 +358,8 @@ export const FlagSettingModal: FC<Props> = ({
             <div>ART回数: {detailSnapshot.artCount ?? '-'}</div>
             <div>合成確率: {detailSnapshot.combinedProbability ?? '-'}</div>
           </div>
+
+          <JugglerSettingEstimatePanel snapshot={detailSnapshotForEstimate} />
 
           <div style={{ marginTop: 8 }}>
             <div style={{ fontWeight: 700, marginBottom: 6 }}>
