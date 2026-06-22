@@ -60,7 +60,7 @@ const JUGGLER_SETTING_SPECS: JugglerSettingSpec[] = [
   },
   {
     id: 'juggler-happyv3',
-    names: ['ハッピージャグラーV III', 'ハッピージャグラーVⅢ', 'ハッピージャグラーVIII', 'ハッピージャグラーV3'],
+    names: ['ハッピージャグラーV III', 'ハッピージャグラーVⅢ', 'ハッピージャグラーVIII', 'ハッピージャグラーVII', 'ハッピージャグラーV3'],
     bigDenominators: [273.06667, 270.80992, 263.19679, 254.0155, 239.18248, 225.98621],
     regDenominators: [397.18788, 362.07735, 332.67005, 300.62385, 273.06667, 256],
     grapeDenominators: [6.04018, 6.01027, 5.98011, 5.8598, 5.83996, 5.82025],
@@ -115,7 +115,7 @@ const JUGGLER_SETTING_SPECS: JugglerSettingSpec[] = [
   },
   {
     id: 'juggler-s-ultra-miracle',
-    names: ['ウルトラミラクルジャグラー'],
+    names: ['ウルトラミラクルジャグラー', 'ウルトラミラクルジャグラ'],
     bigDenominators: [267.49388, 261.0996, 256, 242.72593, 233.2242, 216.29043],
     regDenominators: [425.55844, 402.06135, 350.45989, 322.83744, 297.89091, 277.69492],
     grapeDenominators: [5.94, 5.93785, 5.93623, 5.93408, 5.93301, 5.92925],

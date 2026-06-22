@@ -1,11 +1,6 @@
-import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
-import dayjs from 'dayjs';
-import timezone from 'dayjs/plugin/timezone';
 
-dayjs.extend(timezone);
-
-// CSV/XLSX 出力機能を画面本体から分離。
+// CSV 出力機能を画面本体から分離。
 // 表示値の抽出手順は既存実装を維持し、出力仕様を変えないことを優先する。
 
 /**
@@ -125,97 +120,4 @@ export function downloadCsv(csv: string, baseName = 'export') {
     a.remove();
     URL.revokeObjectURL(url);
   }
-}
-
-/**
- * CSS16進色を ExcelJS が要求する ARGB 形式へ変換する。
- * @param hexColor `#RRGGBB` または `AARRGGBB`
- */
-const toArgb = (hexColor: string): string | undefined => {
-  const hex = hexColor.replace('#', '');
-  if (hex.length === 6) return `FF${hex.toUpperCase()}`;
-  if (hex.length === 8) return hex.toUpperCase();
-  return undefined;
-};
-
-/**
- * 画面用カラーを XLSX 出力向けに補正する。
- * @param color 元の背景色
- */
-const remapExportBgColor = (color: string): string => {
-  if (color === '#FFBFC7') return '#FF0000';
-  if (color === '#5bd799') return '#008000';
-  if (color === '#D3B9DE') return '#5a4498';
-  if (color === '#FFE899') return '#ffff00';
-  return color;
-};
-
-type ExportXlsxParams = {
-  columnDefs: any[];
-  rowData: any[];
-  storeId: string;
-};
-
-/**
- * 表示中グリッドを XLSX として出力する。
- * @param params 出力対象の列/行データと店舗ID
- * @param params.columnDefs AG Grid columnDefs
- * @param params.rowData AG Grid rowData
- * @param params.storeId ファイル名生成に使う店舗ID
- */
-export async function exportVisibleGridToXlsx({ columnDefs, rowData, storeId }: ExportXlsxParams) {
-  const workbook = new ExcelJS.Workbook();
-  const worksheet = workbook.addWorksheet('Sheet1');
-
-  // 既存実装維持: XLSX はトップレベルの表示カラムを対象とする。
-  const visibleDefs = (columnDefs ?? []).filter((d: any) => !d.hide && !d.rowGroup && !d.pivot);
-  const headers = visibleDefs.map((d: any) => d.headerName ?? d.field ?? d.colId ?? '');
-  worksheet.addRow(headers);
-
-  (rowData ?? []).forEach((row: any) => {
-    const rowVals = visibleDefs.map((def: any) => {
-      const val =
-        typeof def.valueGetter === 'function'
-          ? def.valueGetter({ data: row, colDef: def, getValue: (f: string) => row[f] })
-          : def.field
-            ? row[def.field]
-            : def.colId
-              ? row[def.colId]
-              : '';
-      return val;
-    });
-
-    const addedRow = worksheet.addRow(rowVals);
-
-    visibleDefs.forEach((def: any, i: number) => {
-      let bgColor: string | undefined;
-
-      if (typeof def.cellStyle === 'object' && def.cellStyle.backgroundColor) {
-        bgColor = def.cellStyle.backgroundColor;
-      } else if (typeof def.cellStyle === 'function') {
-        try {
-          const styleObj = def.cellStyle({ value: row[def.field], data: row, colDef: def });
-          if (styleObj && styleObj.backgroundColor) {
-            bgColor = remapExportBgColor(styleObj.backgroundColor);
-          }
-        } catch {
-          // 既存挙動維持: style 解決失敗時は塗りつぶしなし
-        }
-      }
-
-      if (!bgColor) return;
-      const argb = toArgb(bgColor);
-      if (!argb) return;
-      const cell = addedRow.getCell(i + 1);
-      cell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb },
-      };
-    });
-  });
-
-  const buffer = await workbook.xlsx.writeBuffer();
-  const fileName = `${storeId}_${dayjs().tz('Asia/Tokyo').format('YYYYMMDDHHmmss')}.xlsx`;
-  saveAs(new Blob([buffer]), fileName);
 }

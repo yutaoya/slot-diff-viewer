@@ -47,7 +47,7 @@ import {
 import type { GridUiStateSnapshot, TodayGalleryItem, TodayOatariHistoryRow, TodaySnapshotItem, ViewMode } from './features/slotDiffGrid/types';
 import { Android12LineSpacingSwitch } from './features/slotDiffGrid/Android12LineSpacingSwitch';
 import { buildTodayGalleryStats } from './features/slotDiffGrid/todayGalleryStats';
-import { exportVisibleGridToXlsx } from './features/slotDiffGrid/gridExportUtils';
+import { exportSlotAnalyticsJson } from './features/slotDiffGrid/gridAnalyticsExportUtils';
 import {
   applyJugglerSettingHeatmapScoresToGroupedRows,
   applyJugglerSettingHeatmapScoresToNumberRows,
@@ -100,9 +100,224 @@ const JugglerHeatmapIcon: React.FC<{ active: boolean }> = ({ active }) => {
   );
 };
 
+const ExportShareIcon: React.FC = () => {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      focusable="false"
+      style={{
+        display: 'block',
+      }}
+    >
+      <path
+        d="M12 4v11"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+      />
+      <path
+        d="M7.5 8.5 12 4l4.5 4.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M6 13.5V19h12v-5.5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+};
+
+const footerToolbarShellStyle: React.CSSProperties = {
+  flexShrink: 0,
+  padding: '0 0 calc(10px + env(safe-area-inset-bottom))',
+  borderTop: '1px solid #d7dde4',
+  background: '#eef2f6',
+  overflow: 'hidden',
+};
+
+const footerToolbarScrollerStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 0,
+  minHeight: 34,
+  overflowX: 'auto',
+  overflowY: 'hidden',
+  WebkitOverflowScrolling: 'touch',
+  overscrollBehaviorX: 'contain',
+  touchAction: 'pan-x',
+  whiteSpace: 'nowrap',
+  background: '#fff',
+  borderLeft: '1px solid #d7dde4',
+  borderBottom: '1px solid #d7dde4',
+};
+
+const footerToolbarBlockStyle: React.CSSProperties = {
+  flex: '0 0 auto',
+  height: 34,
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 0,
+  padding: 0,
+  border: 'none',
+  borderRight: '1px solid #d7dde4',
+  borderRadius: 0,
+  background: '#fff',
+  overflow: 'hidden',
+};
+
+const machineFilterBlockStyle: React.CSSProperties = {
+  ...footerToolbarBlockStyle,
+  minWidth: 0,
+};
+
+const machineSelectFormStyle: React.CSSProperties = {
+  width: 'clamp(112px, 36vw, 190px)',
+  minWidth: 0,
+  flexShrink: 1,
+};
+
+const footerNativeButtonStyle: React.CSSProperties = {
+  height: 34,
+  minWidth: 30,
+  padding: '0 8px',
+  border: 'none',
+  borderRadius: 0,
+  background: 'transparent',
+  color: '#172033',
+  fontSize: 12,
+  fontWeight: 700,
+  lineHeight: 1,
+  cursor: 'pointer',
+};
+
+const footerZoomValueStyle: React.CSSProperties = {
+  minWidth: 44,
+  height: 34,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  textAlign: 'center',
+  color: '#172033',
+  fontSize: 12,
+  fontWeight: 700,
+  fontVariantNumeric: 'tabular-nums',
+};
+
+const heatmapButtonSx = (active: boolean) => ({
+  flexShrink: 0,
+  minWidth: 0,
+  width: 34,
+  height: 34,
+  padding: 0,
+  border: 0,
+  borderRadius: 0,
+  backgroundColor: active ? '#d32f2f' : 'transparent',
+  color: active ? '#fff' : '#5f6877',
+  boxShadow: 'none',
+  '&:hover': {
+    border: 0,
+    backgroundColor: active ? '#c62828' : '#e8edf3',
+    boxShadow: 'none',
+  },
+});
+
+const metricToggleButtonSx = {
+  flexShrink: 0,
+  height: 34,
+  minWidth: 56,
+  padding: '0 8px',
+  border: 0,
+  borderRadius: 0,
+  textTransform: 'none',
+  whiteSpace: 'nowrap',
+  fontSize: '0.78rem',
+  fontWeight: 700,
+  color: '#1565c0',
+  '&:hover': {
+    border: 0,
+    backgroundColor: 'rgba(100,181,246,0.12)',
+  },
+};
+
+const exportButtonSx = {
+  flexShrink: 0,
+  minWidth: 0,
+  height: 34,
+  width: 34,
+  padding: 0,
+  border: 0,
+  borderRadius: 0,
+  textTransform: 'none',
+  backgroundColor: '#455a64',
+  color: '#fff',
+  '&:hover': {
+    backgroundColor: '#37474f',
+  },
+};
+
+const refreshButtonSx = {
+  flexShrink: 0,
+  minWidth: 0,
+  height: 34,
+  width: 34,
+  padding: 0,
+  border: 0,
+  borderRadius: 0,
+  textTransform: 'none',
+  backgroundColor: '#1976d2',
+  color: '#fff',
+  '&:hover': {
+    backgroundColor: '#1565c0',
+  },
+  '&.Mui-disabled': {
+    backgroundColor: '#90caf9',
+    color: '#fff',
+  },
+};
+
 interface Props {
   storeId: string;
 }
+
+type HistoryDebugEvent = {
+  at: number;
+  label: string;
+  meta?: Record<string, unknown>;
+};
+
+const HISTORY_DEBUG_EVENT_LIMIT = 80;
+
+const isHistoryDebugEnabled = () => {
+  if (typeof window === 'undefined') return false;
+  const params = new URLSearchParams(window.location.search);
+  if (params.has('historyDebug')) return true;
+  try {
+    return window.localStorage.getItem('slotHistoryDebug') === '1';
+  } catch {
+    return false;
+  }
+};
+
+const stringifyHistoryDebugMeta = (meta?: Record<string, unknown>) => {
+  if (!meta || Object.keys(meta).length === 0) return '';
+  try {
+    return JSON.stringify(meta);
+  } catch {
+    return String(meta);
+  }
+};
 
 export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const [columnDefs, setColumnDefs] = useState<ColDef[]>([]);
@@ -173,6 +388,8 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const [todayOatariHistoryCount, setTodayOatariHistoryCount] = useState<number | null>(null);
   const todayOatariHistoryReqRef = useRef(0);
   const todayMachineOrderRef = useRef<string[]>([]);
+  const historyDebugEnabledRef = useRef(false);
+  const [historyDebugEvents, setHistoryDebugEvents] = useState<HistoryDebugEvent[]>([]);
 
 
   // 機種名フィルタ
@@ -211,6 +428,30 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const [selectedFloorMapDateField, setSelectedFloorMapDateField] = useState('');
   const [floorMapScale, setFloorMapScale] = useState(1);
   const floorMapUrl = `/${storeId}/floormap.html`;
+
+  useEffect(() => {
+    const enabled = isHistoryDebugEnabled();
+    historyDebugEnabledRef.current = enabled;
+    if (!enabled) return;
+    setHistoryDebugEvents([]);
+    (window as any).__slotHistoryDebugEvents = [];
+  }, []);
+
+  const pushHistoryDebugEvent = useCallback((label: string, meta?: Record<string, unknown>) => {
+    if (!historyDebugEnabledRef.current) return;
+    const event: HistoryDebugEvent = {
+      at: Math.round(performance.now()),
+      label,
+      meta,
+    };
+    setHistoryDebugEvents((prev) => {
+      const next = [...prev, event].slice(-HISTORY_DEBUG_EVENT_LIMIT);
+      (window as any).__slotHistoryDebugEvents = next;
+      return next;
+    });
+    // eslint-disable-next-line no-console
+    console.info('[history-debug]', label, meta ?? {});
+  }, []);
 
   const resolveDisplayName = useCallback((name: string) => {
     const raw = String(name ?? '').trim();
@@ -256,6 +497,82 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     }
     return '-';
   }, []);
+
+  const normalizeEstimateMachineName = useCallback((value: unknown): string => (
+    resolveDisplayName(String(value ?? ''))
+      .normalize('NFKC')
+      .replace(/\s+/g, '')
+      .trim()
+      .toLowerCase()
+  ), [resolveDisplayName]);
+
+  const parseEstimateNumber = useCallback((value: unknown): number | null => {
+    const parsed = toNumericValue(value);
+    return typeof parsed === 'number' && Number.isFinite(parsed) ? parsed : null;
+  }, [toNumericValue]);
+
+  const findPastSlotDiffItemForEstimate = useCallback((
+    dateField: string,
+    machineKey: string,
+    machineName: unknown
+  ): any | null => {
+    const dateData = rawMapRef.current?.[dateField];
+    if (!dateData || typeof dateData !== 'object') return null;
+
+    const targetMachineKey = String(machineKey ?? '').trim();
+    const targetName = normalizeEstimateMachineName(machineName);
+    const entries = Array.isArray(dateData)
+      ? dateData.map((item, index) => [String(index), item] as const)
+      : Object.entries(dateData);
+
+    const byMachineAndName = entries.find(([key, item]: any) => {
+      if (!item || typeof item !== 'object') return false;
+      const itemMachineKey = String(item?.machineNumber ?? key ?? '').trim();
+      const itemName = normalizeEstimateMachineName(item?.name ?? item?.modelName);
+      return itemMachineKey === targetMachineKey && !!targetName && itemName === targetName;
+    });
+    if (byMachineAndName) return byMachineAndName[1];
+
+    const byMachine = entries.find(([key, item]: any) => {
+      if (!item || typeof item !== 'object') return false;
+      return String(item?.machineNumber ?? key ?? '').trim() === targetMachineKey;
+    });
+    return byMachine?.[1] ?? null;
+  }, [normalizeEstimateMachineName]);
+
+  const mergeSlotDiffEstimateFields = useCallback((
+    dateField: string,
+    machineKey: string,
+    fallbackSnapshot: TodaySnapshotItem | null,
+    fallbackName: unknown
+  ): TodaySnapshotItem | null => {
+    const slotDiffItem = findPastSlotDiffItemForEstimate(
+      dateField,
+      machineKey,
+      fallbackSnapshot?.name ?? fallbackName
+    );
+    if (!slotDiffItem) return fallbackSnapshot;
+
+    const games = parseEstimateNumber(slotDiffItem?.games ?? slotDiffItem?.totalGameCount);
+    const bb = parseEstimateNumber(slotDiffItem?.bb ?? slotDiffItem?.bbCount);
+    const rb = parseEstimateNumber(slotDiffItem?.rb ?? slotDiffItem?.rbCount);
+    const diff = parseEstimateNumber(slotDiffItem?.diff ?? slotDiffItem?.currentDifference);
+    const hasSlotDiffEstimateFields = [games, bb, rb, diff].some((value) => value !== null);
+    if (!hasSlotDiffEstimateFields) return fallbackSnapshot;
+
+    return {
+      ...(fallbackSnapshot ?? {}),
+      machineNumber: fallbackSnapshot?.machineNumber ?? slotDiffItem?.machineNumber ?? machineKey,
+      name: fallbackSnapshot?.name ?? slotDiffItem?.name ?? fallbackName,
+      currentDifference: diff !== null ? diff : fallbackSnapshot?.currentDifference,
+      totalGameCount: games !== null ? String(games) : fallbackSnapshot?.totalGameCount,
+      bbCount: bb !== null ? String(bb) : fallbackSnapshot?.bbCount,
+      rbCount: rb !== null ? String(rb) : fallbackSnapshot?.rbCount,
+      bbProbability: slotDiffItem?.bbProbability ?? fallbackSnapshot?.bbProbability,
+      rbProbability: slotDiffItem?.rbProbability ?? fallbackSnapshot?.rbProbability,
+      combinedProbability: slotDiffItem?.combinedProbability ?? fallbackSnapshot?.combinedProbability,
+    };
+  }, [findPastSlotDiffItemForEstimate, parseEstimateNumber]);
 
   const buildDisplayDataMap = useCallback((source: Record<string, any>, metric: DisplayMetric) => {
     if (metric === 'diff') return source ?? {};
@@ -668,6 +985,49 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   }, [flagModalEffectiveMode, modalOpen, selectedCell, resolveDisplayName]);
 
   useEffect(() => {
+    if (!modalOpen) return;
+    pushHistoryDebugEvent('past modal render state', {
+      field: selectedCell?.field ?? '',
+      machine: selectedCell?.rowData?.machineNumber ?? '',
+      mode: flagModalEffectiveMode,
+      loading: flagModalDetailHistoryLoading,
+      rows: flagModalDetailHistoryRows.length,
+      count: flagModalDetailHistoryCount,
+      hasSnapshot: !!flagModalDetailSnapshot,
+      galleryItems: flagModalDetailGalleryItems.length,
+    });
+  }, [
+    flagModalDetailGalleryItems.length,
+    flagModalDetailHistoryCount,
+    flagModalDetailHistoryLoading,
+    flagModalDetailHistoryRows.length,
+    flagModalDetailSnapshot,
+    flagModalEffectiveMode,
+    modalOpen,
+    pushHistoryDebugEvent,
+    selectedCell,
+  ]);
+
+  useEffect(() => {
+    if (!todayDetailModalOpen) return;
+    pushHistoryDebugEvent('today modal render state', {
+      machine: todayDetailMachineKey ?? '',
+      loading: todayOatariHistoryLoading,
+      rows: todayOatariHistoryRows.length,
+      count: todayOatariHistoryCount,
+      hasSnapshot: !!todayDetailItem,
+    });
+  }, [
+    pushHistoryDebugEvent,
+    todayDetailItem,
+    todayDetailMachineKey,
+    todayDetailModalOpen,
+    todayOatariHistoryCount,
+    todayOatariHistoryLoading,
+    todayOatariHistoryRows.length,
+  ]);
+
+  useEffect(() => {
     rowDataRef.current = rowData;        // ★ 常に最新の rowData を保持
   }, [rowData]);
 
@@ -801,7 +1161,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
         name: resolveFloorMapDisplayName(String(row?.name ?? row?.modelName ?? '')),
         diff,
         url: floorMapActiveDateField === 'todayDiff' ? null : row?.urls?.[floorMapActiveDateField] ?? null,
-        flagColor: floorMapActiveDateField === 'todayDiff' ? undefined : getFloorMapFlagColor(row?.flag?.[floorMapActiveDateField]),
+        flagColor: showJugglerHeatmap ? undefined : floorMapActiveDateField === 'todayDiff' ? undefined : getFloorMapFlagColor(row?.flag?.[floorMapActiveDateField]),
         settingHeatmapColor: getSettingHeatmapColor(row, floorMapActiveDateField),
         tooltipColor: tooltipColorMapRef.current[machineNumber],
       };
@@ -884,6 +1244,12 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   };
 
   const showModal = useCallback((value: any, row: any, field: string) => {
+    pushHistoryDebugEvent('modal open requested', {
+      field,
+      mode: viewModeRef.current,
+      machine: row?.machineNumber ?? '',
+      name: row?.name ?? row?.modelName ?? '',
+    });
     if (field === 'todayDiff') {
       if (viewModeRef.current === 'model') {
         if (!row || row?.isTotalRow) return;
@@ -932,7 +1298,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     setFlagModalReturnContext(null);
     flagModalMachineOrderOverrideRef.current = [];
     setModalOpen(true);
-  }, []);
+  }, [pushHistoryDebugEvent]);
 
   const handleOpenFloorMapMachineDetail = useCallback((machineNumber: string) => {
     if (!floorMapActiveDateField) return;
@@ -1081,6 +1447,12 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     setFlagModalDetailHistoryCount(null);
     setFlagModalDetailGalleryItems([]);
     setFlagModalDetailHistoryLoading(true);
+    const loadStartedAt = performance.now();
+    pushHistoryDebugEvent('past detail effect start', {
+      field: dateField,
+      mode: flagModalEffectiveMode,
+      machineKeys: candidateMachineKeys.length,
+    });
 
     const loadDetail = async () => {
       try {
@@ -1108,35 +1480,60 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
 
           if (modelMachineKeys.length === 0) return;
 
+          const fetchStartedAt = performance.now();
+          pushHistoryDebugEvent('past model fetch start', {
+            snapshotId,
+            machines: modelMachineKeys.length,
+          });
           const results = await Promise.all(
             modelMachineKeys.map(async (machineKey) => {
               const result = await fetchSnapshotDetailFromOatariSubcollection(snapshotId, machineKey);
               if (!result.exists || !result.snapshot) return null;
+              const estimateSnapshot = mergeSlotDiffEstimateFields(
+                dateField,
+                machineKey,
+                result.snapshot,
+                targetCanonicalName
+              ) ?? result.snapshot;
               return {
                 machineKey,
-                snapshot: result.snapshot,
+                snapshot: estimateSnapshot,
                 historyRows: result.rows,
                 historyCount: result.count ?? result.rows.length,
+                timing: result.timing,
               };
             })
           );
+          const resultTimings = results
+            .map((v) => v?.timing)
+            .filter((v): v is { readMs: number; parseMs: number; totalMs: number } => !!v);
+          pushHistoryDebugEvent('past model fetch done', {
+            ms: Math.round(performance.now() - fetchStartedAt),
+            results: results.filter((v) => !!v).length,
+            maxReadMs: resultTimings.length > 0 ? Math.max(...resultTimings.map((v) => v.readMs)) : null,
+            maxParseMs: resultTimings.length > 0 ? Math.max(...resultTimings.map((v) => v.parseMs)) : null,
+            maxTotalMs: resultTimings.length > 0 ? Math.max(...resultTimings.map((v) => v.totalMs)) : null,
+          });
 
           if (reqId !== flagModalDetailReqRef.current) return;
-          setFlagModalDetailGalleryItems(
-            results.filter(
-              (
-                v
-              ): v is {
-                machineKey: string;
-                snapshot: TodaySnapshotItem;
-                historyRows: TodayOatariHistoryRow[];
-                historyCount: number;
-              } =>
-                !!v &&
-                !!String(v.snapshot?.graphImageUrl ?? '').trim() &&
-                hasPastDateSnapshotData(v.snapshot, v.historyRows, v.historyCount)
-            )
+          const galleryItems = results.filter(
+            (
+              v
+            ): v is {
+              machineKey: string;
+              snapshot: TodaySnapshotItem;
+              historyRows: TodayOatariHistoryRow[];
+              historyCount: number;
+              timing: { readMs: number; parseMs: number; totalMs: number } | undefined;
+            } =>
+              !!v &&
+              !!String(v.snapshot?.graphImageUrl ?? '').trim() &&
+              hasPastDateSnapshotData(v.snapshot, v.historyRows, v.historyCount)
           );
+          setFlagModalDetailGalleryItems(galleryItems);
+          pushHistoryDebugEvent('past model state set', {
+            galleryItems: galleryItems.length,
+          });
           return;
         }
 
@@ -1144,14 +1541,57 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
         // oatariHistories/{machineNumber} の単一ドキュメントのみ読む。
         const machineKey = candidateMachineKeys[0];
         if (!machineKey) return;
+        const selectedMachineName = selectedCell?.rowData?.name ?? selectedCell?.rowData?.modelName;
+        const slotDiffEstimateSnapshot = mergeSlotDiffEstimateFields(
+          dateField,
+          machineKey,
+          null,
+          selectedMachineName
+        );
 
+        const fetchStartedAt = performance.now();
+        pushHistoryDebugEvent('past detail fetch start', {
+          snapshotId,
+          machineKey,
+        });
         const detailResult = await fetchSnapshotDetailFromOatariSubcollection(snapshotId, machineKey);
+        pushHistoryDebugEvent('past detail fetch done', {
+          ms: Math.round(performance.now() - fetchStartedAt),
+          exists: detailResult.exists,
+          rows: detailResult.rows.length,
+          count: detailResult.count,
+          hasSnapshot: !!detailResult.snapshot,
+          readMs: detailResult.timing?.readMs,
+          parseMs: detailResult.timing?.parseMs,
+          totalMs: detailResult.timing?.totalMs,
+        });
         if (reqId !== flagModalDetailReqRef.current) return;
-        if (!detailResult.exists || !detailResult.snapshot) return;
+        if (!detailResult.exists || !detailResult.snapshot) {
+          if (!slotDiffEstimateSnapshot) return;
+          setFlagModalDetailSnapshot(slotDiffEstimateSnapshot);
+          setFlagModalDetailHistoryRows([]);
+          setFlagModalDetailHistoryCount(0);
+          pushHistoryDebugEvent('past detail fallback state set', {
+            rows: 0,
+            count: 0,
+          });
+          return;
+        }
 
-        setFlagModalDetailSnapshot(detailResult.snapshot);
+        const mergedSnapshot = mergeSlotDiffEstimateFields(
+          dateField,
+          machineKey,
+          detailResult.snapshot,
+          selectedMachineName
+        ) ?? detailResult.snapshot;
+        setFlagModalDetailSnapshot(mergedSnapshot);
         setFlagModalDetailHistoryRows(detailResult.rows);
         setFlagModalDetailHistoryCount(detailResult.count ?? detailResult.rows.length);
+        pushHistoryDebugEvent('past detail state set', {
+          rows: detailResult.rows.length,
+          count: detailResult.count ?? detailResult.rows.length,
+          hasGraph: !!String(mergedSnapshot?.graphImageUrl ?? '').trim(),
+        });
       } catch (error) {
         // eslint-disable-next-line no-console
         console.error('Failed to load past-date snapshot detail:', error);
@@ -1160,21 +1600,42 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
         setFlagModalDetailHistoryRows([]);
         setFlagModalDetailHistoryCount(0);
         setFlagModalDetailGalleryItems([]);
+        pushHistoryDebugEvent('past detail error state set', {
+          message: error instanceof Error ? error.message : String(error),
+        });
       } finally {
         if (reqId === flagModalDetailReqRef.current) {
           setFlagModalDetailHistoryLoading(false);
+          pushHistoryDebugEvent('past detail loading false', {
+            ms: Math.round(performance.now() - loadStartedAt),
+          });
         }
       }
     };
 
     void loadDetail();
-  }, [flagModalEffectiveMode, hasPastDateSnapshotData, modalOpen, resolveDisplayName, selectedCell, storeId]);
+  }, [
+    flagModalEffectiveMode,
+    hasPastDateSnapshotData,
+    mergeSlotDiffEstimateFields,
+    modalOpen,
+    pushHistoryDebugEvent,
+    resolveDisplayName,
+    selectedCell,
+    storeId,
+  ]);
 
   const loadTodayOatariHistory = useCallback(async (machineKey: string, snapshot: TodaySnapshotItem) => {
     const reqId = ++todayOatariHistoryReqRef.current;
     setTodayOatariHistoryLoading(true);
     setTodayOatariHistoryRows([]);
     setTodayOatariHistoryCount(null);
+    const loadStartedAt = performance.now();
+    pushHistoryDebugEvent('today history load start', {
+      snapshotDocId: todaySnapshotDocIdRef.current,
+      machineKey,
+      storage: snapshot?.oatariHistoryStorage ?? '',
+    });
 
     try {
       const useSubcollection = snapshot?.oatariHistoryStorage === 'subcollection';
@@ -1183,7 +1644,21 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
       const snapshotDocId = todaySnapshotDocIdRef.current;
       const trySubcollectionFirst = !!snapshotDocId && (useSubcollection || isStorageUnset);
       if (trySubcollectionFirst) {
+        const fetchStartedAt = performance.now();
+        pushHistoryDebugEvent('today history fetch start', {
+          snapshotDocId,
+          machineKey,
+        });
         const result = await fetchOatariHistorySubcollection(snapshotDocId, machineKey);
+        pushHistoryDebugEvent('today history fetch done', {
+          ms: Math.round(performance.now() - fetchStartedAt),
+          exists: result.exists,
+          rows: result.rows.length,
+          count: result.count,
+          readMs: result.timing?.readMs,
+          parseMs: result.timing?.parseMs,
+          totalMs: result.timing?.totalMs,
+        });
         if (reqId !== todayOatariHistoryReqRef.current) return;
 
         if (!result.exists) {
@@ -1191,6 +1666,11 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
         } else {
           setTodayOatariHistoryRows(result.rows);
           setTodayOatariHistoryCount(result.count ?? result.rows.length);
+          pushHistoryDebugEvent('today history state set', {
+            rows: result.rows.length,
+            count: result.count ?? result.rows.length,
+            source: 'subcollection',
+          });
           return;
         }
       }
@@ -1199,18 +1679,29 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
       if (reqId !== todayOatariHistoryReqRef.current) return;
       setTodayOatariHistoryRows(fallbackRows);
       setTodayOatariHistoryCount(fallbackRows.length);
+      pushHistoryDebugEvent('today history state set', {
+        rows: fallbackRows.length,
+        count: fallbackRows.length,
+        source: 'snapshot',
+      });
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error('Failed to load oatariHistories subcollection:', error);
       if (reqId !== todayOatariHistoryReqRef.current) return;
       setTodayOatariHistoryRows([]);
       setTodayOatariHistoryCount(0);
+      pushHistoryDebugEvent('today history error state set', {
+        message: error instanceof Error ? error.message : String(error),
+      });
     } finally {
       if (reqId === todayOatariHistoryReqRef.current) {
         setTodayOatariHistoryLoading(false);
+        pushHistoryDebugEvent('today history loading false', {
+          ms: Math.round(performance.now() - loadStartedAt),
+        });
       }
     }
-  }, [parseTodayOatariHistory]);
+  }, [parseTodayOatariHistory, pushHistoryDebugEvent]);
 
   const openTodayDetailByMachineKey = useCallback(async (
     machineKey: string,
@@ -1218,13 +1709,18 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   ) => {
     const snapshot = todaySnapshotMapRef.current[machineKey];
     if (!snapshot) return;
+    pushHistoryDebugEvent('today detail open by machine', {
+      machineKey,
+      direction,
+      hasSnapshot: !!snapshot,
+    });
     setTodayDetailAnimName(direction > 0 ? 'slideLeft' : direction < 0 ? 'slideRight' : 'none');
     setTodayDetailAnimTick((v) => v + 1);
     setTodayDetailMachineKey(machineKey);
     setTodayDetailItem(snapshot);
     setTodayDetailModalOpen(true);
     void loadTodayOatariHistory(machineKey, snapshot);
-  }, [loadTodayOatariHistory]);
+  }, [loadTodayOatariHistory, pushHistoryDebugEvent]);
 
   const moveTodayDetailMachine = useCallback((delta: number) => {
     const machineKey = todayDetailMachineKey;
@@ -1375,7 +1871,8 @@ const loadDates = async (dates: string[]) => {
     resolveDisplayName,
     getTooltipColor,
     getTooltipText,
-    getSettingHeatmapColor
+    getSettingHeatmapColor,
+    () => showJugglerHeatmapRef.current
   );
 
   numberColDefsRef.current = [...numberColDefsRef.current, ...newCols];
@@ -1452,7 +1949,7 @@ const loadDates = async (dates: string[]) => {
     const v = props.value;
     const parsed = parseGroupedMetricCell(v);
     const field = props.colDef.field as string;
-    const flag = props.node?.data?.flag?.[field];
+    const flag = showJugglerHeatmapRef.current ? undefined : props.node?.data?.flag?.[field];
     const showDetailLines = (
       viewModeRef.current === 'model' &&
       displayMetricRef.current === 'diff' &&
@@ -1581,7 +2078,8 @@ const loadDates = async (dates: string[]) => {
       hasTodayDiffData,
       resolveDisplayName,
       displayMetric,
-      getSettingHeatmapColor
+      getSettingHeatmapColor,
+      () => showJugglerHeatmapRef.current
     );
     setColumnDefs(groupedCols);
   };
@@ -1651,7 +2149,8 @@ const loadDates = async (dates: string[]) => {
       resolveDisplayName,
       getTooltipColor,
       getTooltipText,
-      getSettingHeatmapColor
+      getSettingHeatmapColor,
+      () => showJugglerHeatmapRef.current
     );
 
     if (viewModeRef.current === 'number') {
@@ -1750,9 +2249,20 @@ const loadDates = async (dates: string[]) => {
     [flagModalDetailGalleryItems]
   );
 
-  const handleExportXlsx = async () => {
-    if (!window.confirm('表示データのExcelファイルを出力します。よろしいですか？')) return;
-    await exportVisibleGridToXlsx({ columnDefs, rowData, storeId });
+  const handleExportJson = () => {
+    if (!window.confirm('表示データのJSONファイルを出力します。よろしいですか？')) return;
+    exportSlotAnalyticsJson({
+      storeId,
+      viewMode: viewModeRef.current,
+      displayMetric: displayMetricRef.current,
+      numberRows: numberRowDataRef.current,
+      loadedDates: Array.from(loadedDates),
+      rawDataByDate: rawMapRef.current,
+      todaySnapshotMap: todaySnapshotMapRef.current,
+      todaySnapshotDateKey,
+      todayColumnHeader,
+      hasTodayDiffData,
+    });
   };
 
   const handleRefreshData = async () => {
@@ -1795,6 +2305,13 @@ const loadDates = async (dates: string[]) => {
     if (!row) return false;
 
     const detail = flagModalDetailGalleryItems.find((item) => item.machineKey === machineKey);
+    pushHistoryDebugEvent('past number selection applied', {
+      machineKey,
+      dateField,
+      hasPreloadedDetail: !!detail,
+      preloadedRows: detail?.historyRows?.length ?? 0,
+      preloadedCount: detail?.historyCount ?? null,
+    });
     setFlagModalModeOverride('number');
     setSelectedCell({ value: row?.[dateField], rowData: row, field: dateField });
     setSelectedFlag(null);
@@ -1806,7 +2323,7 @@ const loadDates = async (dates: string[]) => {
       setFlagModalDetailHistoryLoading(false);
     }
     return true;
-  }, [findMachineRowForDate, flagModalDetailGalleryItems]);
+  }, [findMachineRowForDate, flagModalDetailGalleryItems, pushHistoryDebugEvent]);
 
   // 機種別グラフ一覧から台番を選択したとき、同日付の台番別モーダルへ切り替える。
   const handleOpenNumberModalFromModelGallery = useCallback((machineKey: string) => {
@@ -2239,43 +2756,33 @@ const loadDates = async (dates: string[]) => {
         )}
       </div>
 
-      {/* フィルタ（機種名） */}
-      <div
-        style={{
-          marginTop: 6,
-          marginBottom: 6,
-          minHeight: 36,
-          flexShrink: 0,
-          display: 'grid',
-          gridTemplateColumns: 'minmax(0, 1fr) auto',
-          alignItems: 'center',
-          columnGap: 8,
-        }}
-      >
-        <div style={{ minWidth: 0 }}>
+      {/* フッターツールバー */}
+      <div style={footerToolbarShellStyle}>
+        <div style={footerToolbarScrollerStyle}>
           {viewMode === 'floor' ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={footerToolbarBlockStyle}>
               <button
                 type="button"
                 onClick={() => setFloorMapScale((v) => Math.max(0.5, Math.round((v - 0.1) * 10) / 10))}
-                style={{ height: 30, minWidth: 30, padding: '0 8px' }}
+                style={footerNativeButtonStyle}
+                aria-label="マップを縮小"
               >
                 -
               </button>
-              <span style={{ minWidth: 48, textAlign: 'center', fontSize: 12 }}>
-                {Math.round(floorMapScale * 100)}%
-              </span>
+              <span style={footerZoomValueStyle}>{Math.round(floorMapScale * 100)}%</span>
               <button
                 type="button"
                 onClick={() => setFloorMapScale((v) => Math.min(2.5, Math.round((v + 0.1) * 10) / 10))}
-                style={{ height: 30, minWidth: 30, padding: '0 8px' }}
+                style={footerNativeButtonStyle}
+                aria-label="マップを拡大"
               >
                 +
               </button>
               <button
                 type="button"
                 onClick={() => setFloorMapScale(1)}
-                style={{ height: 30, minWidth: 56, padding: '0 8px' }}
+                style={{ ...footerNativeButtonStyle, minWidth: 54 }}
+                aria-label="マップ倍率を100%へ戻す"
               >
                 100%
               </button>
@@ -2285,38 +2792,53 @@ const loadDates = async (dates: string[]) => {
                 aria-label="ジャグラーヒートマップ"
                 aria-pressed={showJugglerHeatmap}
                 title={showJugglerHeatmap ? 'ジャグラーヒートマップ ON' : 'ジャグラーヒートマップ OFF'}
-                sx={{
-                  flexShrink: 0,
-                  minWidth: 0,
-                  width: 30,
-                  height: 30,
-                  padding: 0,
-                  borderRadius: 1,
-                  borderColor: showJugglerHeatmap ? '#d32f2f' : '#b8c0cc',
-                  backgroundColor: showJugglerHeatmap ? '#d32f2f' : '#fff',
-                  color: showJugglerHeatmap ? '#fff' : '#5f6877',
-                  boxShadow: 'none',
-                  '&:hover': {
-                    borderColor: showJugglerHeatmap ? '#b71c1c' : '#8d96a6',
-                    backgroundColor: showJugglerHeatmap ? '#c62828' : '#f5f7fa',
-                    boxShadow: 'none',
-                  },
-                }}
+                sx={heatmapButtonSx(showJugglerHeatmap)}
               >
                 <JugglerHeatmapIcon active={showJugglerHeatmap} />
               </Button>
             </div>
           ) : viewMode !== 'tail' ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%', maxWidth: 278 }}>
-              <FormControl variant="outlined" fullWidth style={{ width: '100%', maxWidth: 240, minWidth: 0 }}>
+            <div style={machineFilterBlockStyle}>
+              <FormControl variant="outlined" fullWidth style={machineSelectFormStyle}>
                 <Select
                   labelId="machine-select-label"
                   value={selectedName}
                   onChange={handleSelectChange}
                   displayEmpty
+                  renderValue={(value) => {
+                    const currentValue = String(value ?? '');
+                    return currentValue ? currentValue : '全機種';
+                  }}
                   sx={{
-                    height: 30,
-                    fontSize: '0.8em',
+                    height: 34,
+                    fontSize: '0.76em',
+                    backgroundColor: '#fff',
+                    borderRadius: 0,
+                    '& .MuiOutlinedInput-notchedOutline': {
+                      border: 'none',
+                    },
+                    '&:hover .MuiOutlinedInput-notchedOutline': {
+                      border: 'none',
+                    },
+                    '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                      border: 'none',
+                    },
+                    '& .MuiSelect-select': {
+                      paddingTop: 0,
+                      paddingBottom: 0,
+                      paddingLeft: '6px',
+                      paddingRight: '20px !important',
+                      minHeight: '34px',
+                      lineHeight: '34px',
+                      display: 'block',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      boxSizing: 'border-box',
+                    },
+                    '& .MuiSelect-icon': {
+                      right: 1,
+                    },
                   }}
                 >
                   <MenuItem value="" selected>
@@ -2344,118 +2866,55 @@ const loadDates = async (dates: string[]) => {
                   aria-label="ジャグラーヒートマップ"
                   aria-pressed={showJugglerHeatmap}
                   title={showJugglerHeatmap ? 'ジャグラーヒートマップ ON' : 'ジャグラーヒートマップ OFF'}
-                  sx={{
-                    flexShrink: 0,
-                    minWidth: 0,
-                    width: 30,
-                    height: 30,
-                    padding: 0,
-                    borderRadius: 1,
-                    borderColor: showJugglerHeatmap ? '#d32f2f' : '#b8c0cc',
-                    backgroundColor: showJugglerHeatmap ? '#d32f2f' : '#fff',
-                    color: showJugglerHeatmap ? '#fff' : '#5f6877',
-                    boxShadow: 'none',
-                    '&:hover': {
-                      borderColor: showJugglerHeatmap ? '#b71c1c' : '#8d96a6',
-                      backgroundColor: showJugglerHeatmap ? '#c62828' : '#f5f7fa',
-                      boxShadow: 'none',
-                    },
-                  }}
+                  sx={heatmapButtonSx(showJugglerHeatmap)}
                 >
                   <JugglerHeatmapIcon active={showJugglerHeatmap} />
                 </Button>
               ) : null}
             </div>
           ) : null}
-        </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6, minWidth: 0 }}>
           {viewMode !== 'floor' ? (
-            <Button
-              variant="outlined"
-              onClick={handleToggleDisplayMetric}
-              sx={{
-                flexShrink: 0,
-                height: 30,
-                minWidth: 56,
-                padding: '0 10px',
-                borderRadius: 1,
-                textTransform: 'none',
-                whiteSpace: 'nowrap',
-                fontSize: '0.78rem',
-                fontWeight: 700,
-                color: '#1565c0',
-                borderColor: '#90caf9',
-                '&:hover': {
-                  borderColor: '#64b5f6',
-                  backgroundColor: 'rgba(100,181,246,0.12)',
-                },
-              }}
-            >
-              {displayMetric === 'diff' ? '差枚' : '回転数'}
-            </Button>
+            <div style={footerToolbarBlockStyle}>
+              <Button variant="outlined" onClick={handleToggleDisplayMetric} sx={metricToggleButtonSx}>
+                {displayMetric === 'diff' ? '差枚' : '回転数'}
+              </Button>
+            </div>
           ) : null}
 
           {viewMode === 'model' ? (
-            <Box sx={{ flexShrink: 0, display: 'flex', alignItems: 'center', lineHeight: 0 }}>
-              <Android12LineSpacingSwitch
-                checked={displayMetric === 'diff' && showGroupedWinStats}
-                onChange={(e) => {
-                  const currentMode = viewModeRef.current;
-                  const currentMetric = displayMetricRef.current;
-                  const currentSnapshot = captureGridUiState(currentMode, currentMetric);
-                  queueGridUiRestore(currentMode, currentMetric, currentSnapshot);
-                  const nextChecked = e.target.checked;
-                  if (nextChecked !== showGroupedWinStatsRef.current) {
-                    setGridRemountNonce((prev) => prev + 1);
-                  }
-                  showGroupedWinStatsRef.current = nextChecked;
-                  setShowGroupedWinStats(nextChecked);
-                }}
-                disabled={displayMetric === 'games'}
-              />
-            </Box>
+            <div style={footerToolbarBlockStyle}>
+              <Box sx={{ flexShrink: 0, display: 'flex', alignItems: 'center', lineHeight: 0 }}>
+                <Android12LineSpacingSwitch
+                  checked={displayMetric === 'diff' && showGroupedWinStats}
+                  onChange={(e) => {
+                    const currentMode = viewModeRef.current;
+                    const currentMetric = displayMetricRef.current;
+                    const currentSnapshot = captureGridUiState(currentMode, currentMetric);
+                    queueGridUiRestore(currentMode, currentMetric, currentSnapshot);
+                    const nextChecked = e.target.checked;
+                    if (nextChecked !== showGroupedWinStatsRef.current) {
+                      setGridRemountNonce((prev) => prev + 1);
+                    }
+                    showGroupedWinStatsRef.current = nextChecked;
+                    setShowGroupedWinStats(nextChecked);
+                  }}
+                  disabled={displayMetric === 'games'}
+                />
+              </Box>
+            </div>
           ) : null}
 
           {viewMode !== 'floor' ? (
-            <>
+            <div style={footerToolbarBlockStyle}>
               <Button
                 variant="contained"
-                onClick={handleExportXlsx}
-                aria-label="Excel出力"
-                sx={{
-                  flexShrink: 0,
-                  minWidth: 0,
-                  height: 30,
-                  width: 34,
-                  padding: 0,
-                  borderRadius: 1,
-                  textTransform: 'none',
-                  backgroundColor: '#1D6F42',
-                  color: '#fff',
-                  '&:hover': {
-                    backgroundColor: '#155A33',
-                  },
-                }}
+                onClick={handleExportJson}
+                aria-label="JSON出力"
+                title="JSON出力"
+                sx={exportButtonSx}
               >
-                <span
-                  style={{
-                    display: 'inline-flex',
-                    width: 14,
-                    height: 14,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    borderRadius: 2,
-                    backgroundColor: '#0F4C2E',
-                    border: '1px solid rgba(255,255,255,0.42)',
-                    fontSize: 10,
-                    fontWeight: 800,
-                    lineHeight: 1,
-                    color: '#fff',
-                  }}
-                >
-                  X
-                </span>
+                <ExportShareIcon />
               </Button>
               <Button
                 variant="contained"
@@ -2463,24 +2922,7 @@ const loadDates = async (dates: string[]) => {
                 disabled={refreshing}
                 aria-label="データ更新"
                 title="データ更新"
-                sx={{
-                  flexShrink: 0,
-                  minWidth: 0,
-                  height: 30,
-                  width: 30,
-                  padding: 0,
-                  borderRadius: '50%',
-                  textTransform: 'none',
-                  backgroundColor: '#1976d2',
-                  color: '#fff',
-                  '&:hover': {
-                    backgroundColor: '#1565c0',
-                  },
-                  '&.Mui-disabled': {
-                    backgroundColor: '#90caf9',
-                    color: '#fff',
-                  },
-                }}
+                sx={refreshButtonSx}
               >
                 <svg
                   width="17"
@@ -2511,7 +2953,7 @@ const loadDates = async (dates: string[]) => {
                   />
                 </svg>
               </Button>
-            </>
+            </div>
           ) : null}
         </div>
       </div>
@@ -2874,6 +3316,47 @@ const loadDates = async (dates: string[]) => {
           </div>
         )}
       </Modal>
+
+      {historyDebugEvents.length > 0 ? (
+        <div
+          style={{
+            position: 'fixed',
+            right: 8,
+            bottom: 54,
+            zIndex: 20000,
+            width: 'min(360px, calc(100vw - 16px))',
+            maxHeight: '38dvh',
+            overflowY: 'auto',
+            padding: 8,
+            border: '1px solid rgba(20, 42, 70, 0.35)',
+            borderRadius: 6,
+            background: 'rgba(255, 255, 255, 0.94)',
+            boxShadow: '0 6px 18px rgba(0,0,0,0.18)',
+            fontSize: 11,
+            lineHeight: 1.35,
+            color: '#172033',
+            WebkitOverflowScrolling: 'touch',
+          }}
+        >
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>履歴DEBUG</div>
+          {historyDebugEvents.slice(-14).map((event, index) => (
+            <div
+              key={`${event.at}_${event.label}_${index}`}
+              style={{ borderTop: index === 0 ? 'none' : '1px solid #e0e5ec', padding: '3px 0' }}
+            >
+              <span style={{ fontVariantNumeric: 'tabular-nums', color: '#4f627a' }}>
+                {(event.at / 1000).toFixed(1)}s
+              </span>
+              <span style={{ marginLeft: 5, fontWeight: 700 }}>{event.label}</span>
+              {event.meta ? (
+                <div style={{ wordBreak: 'break-all', color: '#546477' }}>
+                  {stringifyHistoryDebugMeta(event.meta)}
+                </div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       <FlagSettingModal
         open={modalOpen}

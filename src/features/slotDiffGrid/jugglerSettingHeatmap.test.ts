@@ -13,6 +13,8 @@ describe('jugglerSettingHeatmap', () => {
   it('matches supported Juggler model names with common notation variants', () => {
     expect(findJugglerSettingSpec('マイジャグラーV')?.id).toBe('juggler-my5');
     expect(findJugglerSettingSpec('ハッピージャグラーVⅢ')?.id).toBe('juggler-happyv3');
+    expect(findJugglerSettingSpec('ハッピージャグラーＶＩＩ…')?.id).toBe('juggler-happyv3');
+    expect(findJugglerSettingSpec('ウルトラミラクルジャグラ…')?.id).toBe('juggler-s-ultra-miracle');
     expect(findJugglerSettingSpec('ゴーゴージャグラー３')?.id).toBe('juggler-gogo3');
     expect(findJugglerSettingSpec('ファンキージャグラー２ＫＴ')?.id).toBe('juggler-funkey2');
   });

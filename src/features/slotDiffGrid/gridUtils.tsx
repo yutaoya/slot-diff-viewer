@@ -55,6 +55,7 @@ export function compareNumericCellValues(
  * @param getTooltipColor 台番号ごとの背景色取得関数
  * @param getTooltipText 台番号ごとのツールチップ文言取得関数
  * @param getSettingHeatmapColor 日付フィールド別の設定判別ヒートマップ色取得関数
+ * @param isSettingHeatmapActive 設定判別ヒートマップ表示状態
  */
 export function buildNumberColumns(
   dates: string[],
@@ -66,7 +67,8 @@ export function buildNumberColumns(
   resolveDisplayName: (name: string) => string,
   getTooltipColor: (machineNumber: number | string | null | undefined) => string | undefined,
   getTooltipText: (machineNumber: number | string | null | undefined) => string | undefined,
-  getSettingHeatmapColor: (row: any, field: string) => string | undefined = () => undefined
+  getSettingHeatmapColor: (row: any, field: string) => string | undefined = () => undefined,
+  isSettingHeatmapActive: () => boolean = () => false
 ): ColDef[] {
   const existingFields = new Set(existing.map(c => c.field));
   const cols: ColDef[] = [];
@@ -212,6 +214,7 @@ export function buildNumberColumns(
         const row = params.data;
         const field = params.colDef.field as string;
         const flag = row?.flag?.[field];
+        const settingHeatmapActive = isSettingHeatmapActive();
 
         let color = '#ccc';
         let backgroundColor: string | undefined;
@@ -220,32 +223,26 @@ export function buildNumberColumns(
           color = v >= 0 ? '#4c6cb3' : '#d9333f';
         }
 
-        switch (flag) {
-          case 9: backgroundColor = '#FFBFC7'; break;
-          case 6: backgroundColor = '#5bd799'; break;
-          case 5: backgroundColor = '#D3B9DE'; break;
-          case 4: backgroundColor = '#FFE899'; break;
-          default: break;
-        }
-
         // ★ 全列で“最新欠損”ならグレー
         if (row && !row.isTotalRow && isMissingLatest(row)) {
           backgroundColor = '#e0e0e0';
           color = '#666';
         }
 
-        switch (flag) {
-          case 9: backgroundColor = '#FFBFC7'; break;
-          case 6: backgroundColor = '#5bd799'; break;
-          case 5: backgroundColor = '#D3B9DE'; break;
-          case 4: backgroundColor = '#FFE899'; break;
-          default: break;
-        }
-
-        if (!backgroundColor) {
+        if (!backgroundColor && settingHeatmapActive) {
           const settingHeatmapColor = getSettingHeatmapColor(row, field);
           if (settingHeatmapColor) {
             backgroundColor = settingHeatmapColor;
+          }
+        }
+
+        if (!settingHeatmapActive) {
+          switch (flag) {
+            case 9: backgroundColor = '#FFBFC7'; break;
+            case 6: backgroundColor = '#5bd799'; break;
+            case 5: backgroundColor = '#D3B9DE'; break;
+            case 4: backgroundColor = '#FFE899'; break;
+            default: break;
           }
         }
 
@@ -287,7 +284,8 @@ export function buildGroupedColumnsForDates(
   hasTodayDiffData: boolean,
   resolveDisplayName: (name: string) => string,
   displayMetric: DisplayMetric,
-  getSettingHeatmapColor: (row: any, field: string) => string | undefined = () => undefined
+  getSettingHeatmapColor: (row: any, field: string) => string | undefined = () => undefined,
+  isSettingHeatmapActive: () => boolean = () => false
 ): ColDef[] {  const existingFields = new Set(existing.map(c => c.field));
   const cols: ColDef[] = [];
 
@@ -422,14 +420,17 @@ export function buildGroupedColumnsForDates(
       const field = params.colDef.field as string;
 
       const flag = row?.flag?.[field];
+      const settingHeatmapActive = isSettingHeatmapActive();
 
       let color = getGroupedCellColor(v);
 
       let backgroundColor: string | undefined;
-      switch (flag) {
-        case 9: backgroundColor = '#FFBFC7'; break;
-        case 5: backgroundColor = '#D3B9DE'; break;
-        case 4: backgroundColor = '#FFE899'; break;
+      if (!settingHeatmapActive) {
+        switch (flag) {
+          case 9: backgroundColor = '#FFBFC7'; break;
+          case 5: backgroundColor = '#D3B9DE'; break;
+          case 4: backgroundColor = '#FFE899'; break;
+        }
       }
 
       if (row && isMissingLatest(row)) {
@@ -439,7 +440,7 @@ export function buildGroupedColumnsForDates(
         }
       }
 
-      if (!backgroundColor) {
+      if (!backgroundColor && settingHeatmapActive) {
         const settingHeatmapColor = getSettingHeatmapColor(row, field);
         if (settingHeatmapColor) {
           backgroundColor = settingHeatmapColor;

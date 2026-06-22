@@ -15,6 +15,8 @@ import type { TodayOatariHistoryRow, TodaySnapshotItem } from './types';
 // Firestore 直接アクセスを画面コンポーネントから分離する Repository。
 // UI 層は「何をしたいか」だけを記述し、接続詳細はここに集約する。
 
+const nowMs = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
 /**
  * 店舗IDに紐づくツールチップ設定を取得する。
  * @param storeId 対象店舗ID
@@ -159,11 +161,19 @@ export async function fetchOatariHistorySubcollection(snapshotDocId: string, mac
   exists: boolean;
   rows: TodayOatariHistoryRow[];
   count: number | null;
+  timing?: { readMs: number; parseMs: number; totalMs: number };
 }> {
   const ref = doc(db, 'site777Snapshots', snapshotDocId, 'oatariHistories', machineKey);
+  const startedAt = nowMs();
   const histSnap = await getDoc(ref);
+  const readDoneAt = nowMs();
   if (!histSnap.exists()) {
-    return { exists: false, rows: [], count: null };
+    return {
+      exists: false,
+      rows: [],
+      count: null,
+      timing: { readMs: Math.round(readDoneAt - startedAt), parseMs: 0, totalMs: Math.round(nowMs() - startedAt) },
+    };
   }
 
   const data = histSnap.data() as {
@@ -173,10 +183,16 @@ export async function fetchOatariHistorySubcollection(snapshotDocId: string, mac
   const rows = parseOatariHistory(data?.oatariHistoryJson);
   const countRaw = data?.oatariHistoryCount;
   const countNumber = typeof countRaw === 'number' ? countRaw : Number(countRaw);
+  const doneAt = nowMs();
   return {
     exists: true,
     rows,
     count: Number.isFinite(countNumber) ? countNumber : rows.length,
+    timing: {
+      readMs: Math.round(readDoneAt - startedAt),
+      parseMs: Math.round(doneAt - readDoneAt),
+      totalMs: Math.round(doneAt - startedAt),
+    },
   };
 }
 
@@ -193,11 +209,20 @@ export async function fetchSnapshotDetailFromOatariSubcollection(
   snapshot: TodaySnapshotItem | null;
   rows: TodayOatariHistoryRow[];
   count: number | null;
+  timing?: { readMs: number; parseMs: number; totalMs: number };
 }> {
   const ref = doc(db, 'site777Snapshots', snapshotDocId, 'oatariHistories', machineKey);
+  const startedAt = nowMs();
   const snap = await getDoc(ref);
+  const readDoneAt = nowMs();
   if (!snap.exists()) {
-    return { exists: false, snapshot: null, rows: [], count: null };
+    return {
+      exists: false,
+      snapshot: null,
+      rows: [],
+      count: null,
+      timing: { readMs: Math.round(readDoneAt - startedAt), parseMs: 0, totalMs: Math.round(nowMs() - startedAt) },
+    };
   }
 
   const data = snap.data() as any;
@@ -227,7 +252,18 @@ export async function fetchSnapshotDetailFromOatariSubcollection(
     oatariHistory: rows,
   };
 
-  return { exists: true, snapshot, rows, count };
+  const doneAt = nowMs();
+  return {
+    exists: true,
+    snapshot,
+    rows,
+    count,
+    timing: {
+      readMs: Math.round(readDoneAt - startedAt),
+      parseMs: Math.round(doneAt - readDoneAt),
+      totalMs: Math.round(doneAt - startedAt),
+    },
+  };
 }
 
 /**

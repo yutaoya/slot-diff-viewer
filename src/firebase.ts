@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import { initializeFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
     apiKey: "AIzaSyDO-sk-TamhGxvxEwbI7yVDeOMnBX4I8s8",
@@ -11,4 +11,14 @@ const firebaseConfig = {
   };
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app);
+
+const shouldForceLongPolling = () => {
+  if (typeof navigator === 'undefined') return false;
+  const userAgent = navigator.userAgent || '';
+  const platform = navigator.platform || '';
+  return /iPad|iPhone|iPod/.test(userAgent) || (platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+};
+
+export const db = initializeFirestore(app, shouldForceLongPolling() ? {
+  experimentalForceLongPolling: true,
+} : {});
