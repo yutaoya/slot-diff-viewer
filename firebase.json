@@ -7,11 +7,12 @@
       "**/node_modules/**"
     ],
     "rewrites": [
-      { "source": "**", "destination": "/index.html" }
+      { "source": "/agtmagtm", "destination": "/agtmagtm/index.html" },
+      { "source": "/agtmagtm/**", "destination": "/agtmagtm/index.html" }
     ],
     "headers": [
       {
-        "source": "**/manifest.webmanifest",
+        "source": "/agtmagtm/manifest.json",
         "headers": [
           { "key": "Content-Type", "value": "application/manifest+json" },
           { "key": "Cache-Control", "value": "no-cache" }

@@ -11,6 +11,7 @@ import {
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 import dayjs from 'dayjs';
+import type { Dayjs } from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import { useSwipeable } from 'react-swipeable';
@@ -21,7 +22,8 @@ import { fetchSlotDiffs } from './dataFetcher';
 import { transformToGridData, transformToGroupedGridData, transformToTailGridData } from './dataTransformer';
 
 // UI
-import { Modal } from 'antd';
+import { DatePicker, Modal } from 'antd';
+import jaJP from 'antd/es/date-picker/locale/ja_JP';
 import { FormControl, MenuItem, Select } from '@mui/material';
 import { SelectChangeEvent } from '@mui/material/Select';
 import Box from '@mui/material/Box';
@@ -72,6 +74,7 @@ import { FlagSettingModal } from './features/slotDiffGrid/components/FlagSetting
 import { JugglerSettingEstimatePanel } from './features/slotDiffGrid/components/JugglerSettingEstimatePanel';
 import { MachineDataModal } from './features/slotDiffGrid/components/MachineDataModal';
 import { FloorMapView, type FloorMapDateOption, type FloorMapMachineData } from './features/slotDiffGrid/components/FloorMapView';
+import { ACCESS_ROOT_PATH } from './appAccessPath';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -99,7 +102,70 @@ const JugglerHeatmapIcon: React.FC<{ active: boolean }> = ({ active }) => {
     </span>
   );
 };
+const CalendarSearchIcon: React.FC = () => (
+  <span
+    className="material-symbols-rounded"
+    aria-hidden="true"
+    style={{
+      display: 'block',
+      width: 19,
+      height: 19,
+      overflow: 'hidden',
+      fontSize: 19,
+      lineHeight: '19px',
+      fontVariationSettings: "'FILL' 0, 'wght' 700, 'GRAD' 0, 'opsz' 20",
+    }}
+  >
+    calendar_month
+  </span>
+);
 
+function dateKeyToDayjs(dateKey: string) {
+  if (!/^\d{8}$/.test(dateKey)) return null;
+  return dayjs(`${dateKey.slice(0, 4)}-${dateKey.slice(4, 6)}-${dateKey.slice(6, 8)}`);
+}
+
+function formatDateKeyForCalendar(dateKey: string): string {
+  if (!/^\d{8}$/.test(dateKey)) return '';
+  return `${dateKey.slice(0, 4)}/${dateKey.slice(4, 6)}/${dateKey.slice(6, 8)}`;
+}
+type TailFilterValue = '' | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | 'zorome';
+
+const TAIL_FILTER_OPTIONS: Array<{ value: TailFilterValue; label: string; menuLabel: string }> = [
+  { value: '', label: '全末尾', menuLabel: 'すべての末尾' },
+  { value: '0', label: '末尾0', menuLabel: '末尾0' },
+  { value: '1', label: '末尾1', menuLabel: '末尾1' },
+  { value: '2', label: '末尾2', menuLabel: '末尾2' },
+  { value: '3', label: '末尾3', menuLabel: '末尾3' },
+  { value: '4', label: '末尾4', menuLabel: '末尾4' },
+  { value: '5', label: '末尾5', menuLabel: '末尾5' },
+  { value: '6', label: '末尾6', menuLabel: '末尾6' },
+  { value: '7', label: '末尾7', menuLabel: '末尾7' },
+  { value: '8', label: '末尾8', menuLabel: '末尾8' },
+  { value: '9', label: '末尾9', menuLabel: '末尾9' },
+  { value: 'zorome', label: 'ゾロ目', menuLabel: 'ゾロ目' },
+];
+
+function getMachineNumberForTailFilter(row: any): number | null {
+  const raw = row?.machineNumber;
+  if (raw === undefined || raw === null || raw === '') return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+function isZoromeMachineNumber(machineNumber: number): boolean {
+  const twoDigits = Math.abs(machineNumber % 100).toString().padStart(2, '0');
+  return twoDigits[0] === twoDigits[1];
+}
+
+function matchesTailFilter(row: any, filter: TailFilterValue): boolean {
+  if (!filter) return true;
+  if (!row || row.isTotalRow) return false;
+  const machineNumber = getMachineNumberForTailFilter(row);
+  if (machineNumber === null) return false;
+  if (filter === 'zorome') return isZoromeMachineNumber(machineNumber);
+  return Math.abs(machineNumber % 10) === Number(filter);
+}
 const ExportShareIcon: React.FC = () => {
   return (
     <svg
@@ -183,9 +249,16 @@ const machineFilterBlockStyle: React.CSSProperties = {
 };
 
 const machineSelectFormStyle: React.CSSProperties = {
-  width: 'clamp(112px, 36vw, 190px)',
+  width: 'clamp(92px, 28vw, 168px)',
   minWidth: 0,
   flexShrink: 1,
+};
+
+const tailFilterSelectFormStyle: React.CSSProperties = {
+  width: 'clamp(74px, 20vw, 104px)',
+  minWidth: 0,
+  flexShrink: 0,
+  borderLeft: '1px solid #d7dde4',
 };
 
 const footerNativeButtonStyle: React.CSSProperties = {
@@ -251,6 +324,29 @@ const metricToggleButtonSx = {
   },
 };
 
+
+const calendarButtonSx = (active: boolean) => ({
+  flexShrink: 0,
+  minWidth: 0,
+  height: 34,
+  width: 34,
+  padding: 0,
+  border: 0,
+  borderRadius: 0,
+  textTransform: 'none',
+  backgroundColor: 'transparent',
+  color: active ? '#1565c0' : '#5f6877',
+  boxShadow: 'none',
+  '&:hover': {
+    backgroundColor: 'transparent',
+    color: active ? '#0d47a1' : '#263238',
+    boxShadow: 'none',
+  },
+  '&.Mui-disabled': {
+    backgroundColor: 'transparent',
+    color: '#9eabb8',
+  },
+});
 const exportButtonSx = {
   flexShrink: 0,
   minWidth: 0,
@@ -298,6 +394,17 @@ type HistoryDebugEvent = {
 };
 
 const HISTORY_DEBUG_EVENT_LIMIT = 80;
+type CalendarGridBuildOptions = {
+  searchMode?: boolean;
+};
+
+function pickRawDataByDateKeys(source: Record<string, any>, dateKeys: string[]): Record<string, any> {
+  const picked: Record<string, any> = {};
+  dateKeys.forEach((dateKey) => {
+    if (source?.[dateKey]) picked[dateKey] = source[dateKey];
+  });
+  return picked;
+}
 
 const isHistoryDebugEnabled = () => {
   if (typeof window === 'undefined') return false;
@@ -334,6 +441,12 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const [loadedDates, setLoadedDates] = useState<Set<string>>(new Set());
   const loadingRef = useRef(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [calendarModalOpen, setCalendarModalOpen] = useState(false);
+  const [calendarPickerOpen, setCalendarPickerOpen] = useState(false);
+  const [calendarDate, setCalendarDate] = useState<Dayjs | null>(null);
+  const [calendarSearchDateKey, setCalendarSearchDateKey] = useState('');
+  const [calendarLoading, setCalendarLoading] = useState(false);
+  const calendarNormalLoadedDatesRef = useRef<string[] | null>(null);
   const scrollReady = useRef(false);
   const didInitRef = useRef(false);
 
@@ -392,8 +505,9 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const [historyDebugEvents, setHistoryDebugEvents] = useState<HistoryDebugEvent[]>([]);
 
 
-  // 機種名フィルタ
+  // 機種名/末尾フィルタ
   const [selectedName, setSelectedName] = useState<string>("");
+  const [selectedTailFilter, setSelectedTailFilter] = useState<TailFilterValue>('');
 
   // 読み込み済みの「生データ（date => map）」を保持（機種別集計に使用）
   const rawMapRef = useRef<Record<string, any>>({});
@@ -427,7 +541,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const [hasFloorMap, setHasFloorMap] = useState(false);
   const [selectedFloorMapDateField, setSelectedFloorMapDateField] = useState('');
   const [floorMapScale, setFloorMapScale] = useState(1);
-  const floorMapUrl = `/${storeId}/floormap.html`;
+  const floorMapUrl = `${ACCESS_ROOT_PATH}/${storeId}/floormap.html`;
 
   useEffect(() => {
     const enabled = isHistoryDebugEnabled();
@@ -915,6 +1029,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   }, [displayMetric, buildTodayMetricMapFromSnapshot]);
 
   useEffect(() => {
+    if (calendarSearchDateKey) return;
     if (numberRowDataRef.current.length === 0) return;
     numberRowDataRef.current = applyTodayDiffToRows(
       numberRowDataRef.current,
@@ -932,19 +1047,20 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     if (viewMode === 'tail') {
       buildAndSetTail();
     }
-  }, [todayDiffMap, todaySnapshotDateKey, viewMode]);
+  }, [todayDiffMap, todaySnapshotDateKey, viewMode, calendarSearchDateKey]);
 
   useEffect(() => {
+    const hideTodayColumn = !hasTodayDiffData || !!calendarSearchDateKey;
     const updateTodayColumnMetadata = (cols: ColDef[]) =>
       (cols ?? []).map((col) => (
         col?.field === 'todayDiff'
-          ? { ...col, hide: !hasTodayDiffData, headerName: todayColumnHeader }
+          ? { ...col, hide: hideTodayColumn, headerName: todayColumnHeader }
           : col
       ));
 
     numberColDefsRef.current = updateTodayColumnMetadata(numberColDefsRef.current);
     setColumnDefs((prev) => updateTodayColumnMetadata(prev));
-  }, [hasTodayDiffData, todayColumnHeader]);
+  }, [hasTodayDiffData, todayColumnHeader, calendarSearchDateKey]);
 
   useEffect(() => {
     if (modalOpen && selectedCell) {
@@ -1042,9 +1158,12 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const filteredRowData = useMemo(() => {
     if (viewMode === 'tail') return rowData;
     if (viewMode === 'floor') return rowData;
-    if (!selectedName) return rowData;
-    return rowData.filter((r) => (r.name ?? r.modelName) === selectedName);
-  }, [selectedName, rowData, viewMode]);
+    return rowData.filter((r) => {
+      if (selectedName && (r.name ?? r.modelName) !== selectedName) return false;
+      if (viewMode === 'number' && !matchesTailFilter(r, selectedTailFilter)) return false;
+      return true;
+    });
+  }, [selectedName, selectedTailFilter, rowData, viewMode]);
 
   const floorMapDateField = useMemo(() => {
     const loaded = Array.from(loadedDates).sort();
@@ -1059,12 +1178,12 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
         field: dateKey,
         label: `${dateKey.slice(4, 6)}/${dateKey.slice(6)}`,
       }));
-    return hasTodayDiffData
+    return hasTodayDiffData && !calendarSearchDateKey
       ? [{ field: 'todayDiff', label: todayColumnHeader }, ...dateOptions]
       : dateOptions;
-  }, [hasTodayDiffData, loadedDates, todayColumnHeader]);
+  }, [calendarSearchDateKey, hasTodayDiffData, loadedDates, todayColumnHeader]);
 
-  const defaultFloorMapDateField = hasTodayDiffData ? 'todayDiff' : floorMapDateField;
+  const defaultFloorMapDateField = hasTodayDiffData && !calendarSearchDateKey ? 'todayDiff' : floorMapDateField;
   const floorMapActiveDateField = useMemo(() => {
     const fields = new Set(floorMapDateOptions.map((option) => option.field));
     if (selectedFloorMapDateField && fields.has(selectedFloorMapDateField)) {
@@ -1233,6 +1352,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   };
 
   const loadMoreDates = async () => {
+    if (calendarSearchDateKey) return;
     if (loadingRef.current) return;
     loadingRef.current = true;
 
@@ -2021,6 +2141,21 @@ const loadDates = async (dates: string[]) => {
     });
   };
 
+  const handleTailFilterChange = (e: SelectChangeEvent) => {
+    const gridBody = document.querySelector('.ag-body-viewport') as HTMLElement;
+    if (gridBody) gridBody.scrollTop = 0;
+    setSelectedTailFilter(e.target.value as TailFilterValue);
+    virtualizationPendingRef.current = true;
+    setDisableVirtualization(true);
+    requestAnimationFrame(() => {
+      const target = e.target as HTMLInputElement | null;
+      target?.blur?.();
+      const active = document.activeElement as HTMLElement | null;
+      active?.blur?.();
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    });
+  };
+
   const handleToggleDisplayMetric = () => {
     const currentMode = viewModeRef.current;
     const prevMetric = displayMetricRef.current;
@@ -2037,8 +2172,14 @@ const loadDates = async (dates: string[]) => {
   };
 
   // ========= 機種別（平均） =========
-  const buildAndSetGrouped = (loadedDatesOverride?: string[], allDataOverride?: Record<string, any>) => {
+  const buildAndSetGrouped = (
+    loadedDatesOverride?: string[],
+    allDataOverride?: Record<string, any>,
+    options?: { hideToday?: boolean; rawDataOverride?: Record<string, any> }
+  ) => {
     const allData = allDataOverride ?? buildDisplayDataMap(rawMapRef.current, displayMetric);
+    const rawDataForHeatmap = options?.rawDataOverride ?? rawMapRef.current;
+    const shouldShowToday = !options?.hideToday;
 
     // 読み込み済み日付（降順：最新→古い）
     const loaded = (loadedDatesOverride ?? Array.from(loadedDates)).sort((a, b) => b.localeCompare(a));
@@ -2049,7 +2190,7 @@ const loadDates = async (dates: string[]) => {
 
     // あなたの transform に合わせる（機種名＋各日付の平均差枚、台番は空欄）
     const effectiveLatestDate = pickEffectiveLatestDate(allData, loaded);
-    const settingHeatmapScoreMapsByDate = buildJugglerSettingHeatmapScoreMapsByDate(rawMapRef.current);
+    const settingHeatmapScoreMapsByDate = buildJugglerSettingHeatmapScoreMapsByDate(rawDataForHeatmap);
     let groupedRows = transformToGroupedGridData(latest, allData);
     groupedRows = applyGroupedTotalLabelByMetric(groupedRows);
     if (displayMetric === 'diff') {
@@ -2057,16 +2198,18 @@ const loadDates = async (dates: string[]) => {
     }
     const groupedWithSettingHeatmap = applyJugglerSettingHeatmapScoresToGroupedRows(
       groupedRows,
-      rawMapRef.current,
+      rawDataForHeatmap,
       settingHeatmapScoreMapsByDate
     );
-    const groupedWithToday = applyTodayDiffToGroupedRows(
-      groupedWithSettingHeatmap,
-      numberRowDataRef.current,
-      effectiveLatestDate || '',
-      displayMetric === 'diff'
-    );
-    setRowData(groupedWithToday);
+    const groupedForDisplay = shouldShowToday
+      ? applyTodayDiffToGroupedRows(
+          groupedWithSettingHeatmap,
+          numberRowDataRef.current,
+          effectiveLatestDate || '',
+          displayMetric === 'diff'
+        )
+      : groupedWithSettingHeatmap;
+    setRowData(groupedForDisplay);
 
     // 機種名（name優先、なければmodelName）＋日付列（降順）
     const groupedCols = buildGroupedColumnsForDates(
@@ -2075,7 +2218,7 @@ const loadDates = async (dates: string[]) => {
       showModal,
       effectiveLatestDate || '',
       todayColumnHeader,
-      hasTodayDiffData,
+      hasTodayDiffData && shouldShowToday,
       resolveDisplayName,
       displayMetric,
       getSettingHeatmapColor,
@@ -2085,33 +2228,175 @@ const loadDates = async (dates: string[]) => {
   };
 
   // ========= 末尾別（平均） =========
-  const buildAndSetTail = (loadedDatesOverride?: string[], allDataOverride?: Record<string, any>) => {
+  const buildAndSetTail = (
+    loadedDatesOverride?: string[],
+    allDataOverride?: Record<string, any>,
+    options?: { hideToday?: boolean }
+  ) => {
     const allData = allDataOverride ?? buildDisplayDataMap(rawMapRef.current, displayMetric);
     const loaded = (loadedDatesOverride ?? Array.from(loadedDates)).sort((a, b) => b.localeCompare(a));
     const effectiveLatestDate = pickEffectiveLatestDate(allData, loaded);
+    const shouldShowToday = !options?.hideToday;
 
     const tailRows = transformToTailGridData(allData);
-    const tailWithToday = applyTodayDiffToTailRows(
-      tailRows,
-      numberRowDataRef.current,
-      displayMetric === 'diff'
-    );
+    const tailForDisplay = shouldShowToday
+      ? applyTodayDiffToTailRows(
+          tailRows,
+          numberRowDataRef.current,
+          displayMetric === 'diff'
+        )
+      : tailRows;
     const tailCols = buildTailColumnsForDates(
       loaded,
       effectiveLatestDate || '',
       todayColumnHeader,
-      hasTodayDiffData,
+      hasTodayDiffData && shouldShowToday,
       displayMetric,
-      tailWithToday
+      tailForDisplay
     );
 
-    setRowData(tailWithToday);
+    setRowData(tailForDisplay);
     setColumnDefs(tailCols);
   };
+  const rebuildGridForLoadedDates = (dateKeys: string[], options?: CalendarGridBuildOptions) => {
+    const normalizedDateKeys = Array.from(
+      new Set(dateKeys.filter((dateKey) => /^\d{8}$/.test(dateKey)))
+    ).sort((a, b) => b.localeCompare(a));
+    if (normalizedDateKeys.length === 0) return;
 
+    const isCalendarSearch = !!options?.searchMode;
+    const rawDataForDisplay = isCalendarSearch
+      ? pickRawDataByDateKeys(rawMapRef.current, normalizedDateKeys)
+      : rawMapRef.current;
+    const allDataForDisplay = buildDisplayDataMap(rawDataForDisplay, displayMetric);
+    const latestKey = normalizedDateKeys[0];
+    const latest = (latestKey && allDataForDisplay[latestKey])
+      ? allDataForDisplay[latestKey]
+      : Object.values(allDataForDisplay)[0] ?? {};
+
+    let numberRows = transformToGridData(latest, allDataForDisplay);
+    numberRows = applyNumberTotalLabelByMetric(numberRows);
+    if (!isCalendarSearch) {
+      numberRows = applyTodayDiffToRows(
+        numberRows,
+        todayDiffMap,
+        todaySnapshotDateKey
+      );
+    }
+    numberRows = applyJugglerSettingHeatmapScoresToNumberRows(
+      numberRows,
+      buildJugglerSettingHeatmapScoreMapsByDate(rawDataForDisplay)
+    );
+
+    const effectiveLatestDate = pickEffectiveLatestDate(allDataForDisplay, normalizedDateKeys);
+    numberRowDataRef.current = effectiveLatestDate
+      ? sortByLatestMissing(numberRows, effectiveLatestDate)
+      : sortByMachineNumber(numberRows);
+
+    numberColDefsRef.current = buildNumberColumns(
+      normalizedDateKeys,
+      [],
+      showModal,
+      effectiveLatestDate || '',
+      todayColumnHeader,
+      hasTodayDiffData && !isCalendarSearch,
+      resolveDisplayName,
+      getTooltipColor,
+      getTooltipText,
+      getSettingHeatmapColor,
+      () => showJugglerHeatmapRef.current
+    );
+
+    setLoadedDates(new Set(normalizedDateKeys));
+    setSelectedFloorMapDateField('');
+
+    if (viewModeRef.current === 'number') {
+      setRowData(numberRowDataRef.current);
+      setColumnDefs(numberColDefsRef.current);
+      return;
+    }
+    if (viewModeRef.current === 'model') {
+      buildAndSetGrouped(normalizedDateKeys, allDataForDisplay, {
+        hideToday: isCalendarSearch,
+        rawDataOverride: rawDataForDisplay,
+      });
+      return;
+    }
+    if (viewModeRef.current === 'tail') {
+      buildAndSetTail(normalizedDateKeys, allDataForDisplay, { hideToday: isCalendarSearch });
+    }
+  };
+  const hasCalendarSearchData = (dateData: any): boolean => {
+    if (!dateData) return false;
+    if (Array.isArray(dateData)) return dateData.length > 0;
+    if (typeof dateData === 'object') return Object.keys(dateData).length > 0;
+    return false;
+  };
+
+  const handleOpenCalendarSearch = () => {
+    setCalendarDate(calendarSearchDateKey ? dateKeyToDayjs(calendarSearchDateKey) : null);
+    setCalendarModalOpen(true);
+    setCalendarPickerOpen(true);
+  };
+
+  const handleCalendarDateSelect = async (dateKey: string) => {
+    if (!/^\d{8}$/.test(dateKey) || calendarLoading) return;
+    if (!calendarNormalLoadedDatesRef.current) {
+      calendarNormalLoadedDatesRef.current = Array.from(loadedDates).sort((a, b) => b.localeCompare(a));
+    }
+
+    setCalendarLoading(true);
+    try {
+      const fetchedRaw = await fetchSlotDiffs(storeId, [dateKey]);
+      const normalizedRaw: Record<string, any> = {};
+      Object.entries(fetchedRaw ?? {}).forEach(([fetchedDateKey, dateData]) => {
+        normalizedRaw[fetchedDateKey] = normalizeDateDataNames(dateData);
+      });
+
+      if (!hasCalendarSearchData(normalizedRaw[dateKey])) {
+        window.alert(`${formatDateKeyForCalendar(dateKey)} のデータがありません。`);
+        return;
+      }
+
+      Object.entries(normalizedRaw).forEach(([fetchedDateKey, dateData]) => {
+        rawMapRef.current[fetchedDateKey] = dateData;
+      });
+      setCalendarSearchDateKey(dateKey);
+      setCalendarDate(dateKeyToDayjs(dateKey));
+      rebuildGridForLoadedDates([dateKey], { searchMode: true });
+      setCalendarPickerOpen(false);
+      setCalendarModalOpen(false);
+    } catch (error) {
+      console.error('Failed to load calendar date data', error);
+      window.alert('日付データの取得に失敗しました。');
+    } finally {
+      setCalendarLoading(false);
+    }
+  };
+
+  const handleClearCalendarSearch = () => {
+    const hadSearch = !!calendarSearchDateKey;
+    const normalDates = calendarNormalLoadedDatesRef.current;
+    calendarNormalLoadedDatesRef.current = null;
+    setCalendarSearchDateKey('');
+    setCalendarDate(null);
+    setCalendarPickerOpen(false);
+    setCalendarModalOpen(false);
+    if (normalDates && normalDates.length > 0) {
+      rebuildGridForLoadedDates(normalDates);
+      return;
+    }
+    if (hadSearch) {
+      void loadInitialData();
+    }
+  };
   useEffect(() => {
     const loadedArr = Array.from(loadedDates);
     if (loadedArr.length === 0) return;
+    if (calendarSearchDateKey) {
+      rebuildGridForLoadedDates([calendarSearchDateKey], { searchMode: true });
+      return;
+    }
 
     pendingScrollRestoreRef.current = getCurrentVerticalScrollTop();
 
@@ -2174,9 +2459,15 @@ const loadDates = async (dates: string[]) => {
 
     const newMode: ViewMode = newValue === 0 ? 'number' : newValue === 1 ? 'model' : newValue === 2 ? 'tail' : 'floor';
     queueGridUiRestore(newMode, currentMetric);
+    viewModeRef.current = newMode;
     setViewMode(newMode);
     if (newMode === 'tail' || newMode === 'floor') {
       setSelectedName('');
+    }
+
+    if (calendarSearchDateKey) {
+      rebuildGridForLoadedDates([calendarSearchDateKey], { searchMode: true });
+      return;
     }
 
     if (newMode === 'model') {
@@ -2265,38 +2556,10 @@ const loadDates = async (dates: string[]) => {
     });
   };
 
-  const handleRefreshData = async () => {
-    if (refreshing || loadingRef.current) return;
-    const dates = Array.from(loadedDates).sort((a, b) => b.localeCompare(a));
-    const currentMode = viewModeRef.current;
-    const currentMetric = displayMetricRef.current;
-    const currentSnapshot = captureGridUiState(currentMode, currentMetric);
-
+  const handleRefreshData = () => {
+    if (refreshing) return;
     setRefreshing(true);
-    loadingRef.current = true;
-    try {
-      await loadTodaySnapshotData();
-      if (dates.length === 0) {
-        queueGridUiRestore(currentMode, currentMetric, currentSnapshot);
-        await loadInitialData();
-        return;
-      }
-
-      rawMapRef.current = {};
-      numberRowDataRef.current = [];
-      numberColDefsRef.current = [];
-      setLoadedDates(new Set());
-      queueGridUiRestore(currentMode, currentMetric, currentSnapshot);
-      await loadDates(dates);
-      gridRef.current?.api?.refreshCells({ force: true });
-    } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error('Failed to refresh slot diff data:', error);
-      window.alert('更新に失敗しました。時間をおいて再度お試しください。');
-    } finally {
-      loadingRef.current = false;
-      setRefreshing(false);
-    }
+    window.location.reload();
   };
 
   // 指定台番でフラグモーダルを台番別コンテキストへ切り替える。
@@ -2369,8 +2632,8 @@ const loadDates = async (dates: string[]) => {
     const fallbackOrder = (numberRowDataRef.current ?? [])
       .filter((row: any) => !row?.isTotalRow && row?.machineNumber != null)
       .filter((row: any) => {
-        if (!selectedName) return true;
-        return (row?.name ?? row?.modelName) === selectedName;
+        if (selectedName && (row?.name ?? row?.modelName) !== selectedName) return false;
+        return matchesTailFilter(row, selectedTailFilter);
       })
       .map((row: any) => String(row.machineNumber).trim())
       .filter((v: string) => !!v);
@@ -2392,6 +2655,7 @@ const loadDates = async (dates: string[]) => {
     modalOpen,
     selectedCell,
     selectedName,
+    selectedTailFilter,
   ]);
 
   const handleFlagModalSwipePrev = useCallback(() => {
@@ -2789,9 +3053,9 @@ const loadDates = async (dates: string[]) => {
               <Button
                 variant={showJugglerHeatmap ? 'contained' : 'outlined'}
                 onClick={handleToggleJugglerHeatmap}
-                aria-label="ジャグラーヒートマップ"
+                aria-label="設定推測ヒートマップ"
                 aria-pressed={showJugglerHeatmap}
-                title={showJugglerHeatmap ? 'ジャグラーヒートマップ ON' : 'ジャグラーヒートマップ OFF'}
+                title={showJugglerHeatmap ? '設定推測ヒートマップ ON' : '設定推測ヒートマップ OFF'}
                 sx={heatmapButtonSx(showJugglerHeatmap)}
               >
                 <JugglerHeatmapIcon active={showJugglerHeatmap} />
@@ -2860,12 +3124,63 @@ const loadDates = async (dates: string[]) => {
                 </Select>
               </FormControl>
               {viewMode === 'number' ? (
+                <FormControl variant="outlined" style={tailFilterSelectFormStyle}>
+                  <Select
+                    labelId="tail-filter-select-label"
+                    value={selectedTailFilter}
+                    onChange={handleTailFilterChange}
+                    displayEmpty
+                    renderValue={(value) => {
+                      const option = TAIL_FILTER_OPTIONS.find((item) => item.value === value);
+                      return option?.label ?? '全末尾';
+                    }}
+                    sx={{
+                      height: 34,
+                      fontSize: '0.74em',
+                      backgroundColor: '#fff',
+                      borderRadius: 0,
+                      '& .MuiOutlinedInput-notchedOutline': {
+                        border: 'none',
+                      },
+                      '&:hover .MuiOutlinedInput-notchedOutline': {
+                        border: 'none',
+                      },
+                      '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
+                        border: 'none',
+                      },
+                      '& .MuiSelect-select': {
+                        paddingTop: 0,
+                        paddingBottom: 0,
+                        paddingLeft: '6px',
+                        paddingRight: '18px !important',
+                        minHeight: '34px',
+                        lineHeight: '34px',
+                        display: 'block',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        boxSizing: 'border-box',
+                      },
+                      '& .MuiSelect-icon': {
+                        right: 0,
+                      },
+                    }}
+                  >
+                    {TAIL_FILTER_OPTIONS.map((option) => (
+                      <MenuItem key={option.value || 'all'} value={option.value}>
+                        {option.value ? option.menuLabel : <em>{option.menuLabel}</em>}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              ) : null}
+              {viewMode === 'number' ? (
                 <Button
                   variant={showJugglerHeatmap ? 'contained' : 'outlined'}
                   onClick={handleToggleJugglerHeatmap}
-                  aria-label="ジャグラーヒートマップ"
+                  aria-label="設定推測ヒートマップ"
                   aria-pressed={showJugglerHeatmap}
-                  title={showJugglerHeatmap ? 'ジャグラーヒートマップ ON' : 'ジャグラーヒートマップ OFF'}
+                  title={showJugglerHeatmap ? '設定推測ヒートマップ ON' : '設定推測ヒートマップ OFF'}
                   sx={heatmapButtonSx(showJugglerHeatmap)}
                 >
                   <JugglerHeatmapIcon active={showJugglerHeatmap} />
@@ -2874,6 +3189,20 @@ const loadDates = async (dates: string[]) => {
             </div>
           ) : null}
 
+          {viewMode !== 'floor' ? (
+            <div style={footerToolbarBlockStyle}>
+              <Button
+                variant="text"
+                onClick={handleOpenCalendarSearch}
+                disabled={calendarLoading}
+                aria-label="日付検索"
+                title={calendarSearchDateKey ? `日付検索: ${formatDateKeyForCalendar(calendarSearchDateKey)}` : '日付検索'}
+                sx={calendarButtonSx(!!calendarSearchDateKey)}
+              >
+                <CalendarSearchIcon />
+              </Button>
+            </div>
+          ) : null}
           {viewMode !== 'floor' ? (
             <div style={footerToolbarBlockStyle}>
               <Button variant="outlined" onClick={handleToggleDisplayMetric} sx={metricToggleButtonSx}>
@@ -2905,8 +3234,8 @@ const loadDates = async (dates: string[]) => {
             </div>
           ) : null}
 
-          {viewMode !== 'floor' ? (
-            <div style={footerToolbarBlockStyle}>
+          <div style={footerToolbarBlockStyle}>
+            {viewMode !== 'floor' ? (
               <Button
                 variant="contained"
                 onClick={handleExportJson}
@@ -2916,45 +3245,45 @@ const loadDates = async (dates: string[]) => {
               >
                 <ExportShareIcon />
               </Button>
-              <Button
-                variant="contained"
-                onClick={() => void handleRefreshData()}
-                disabled={refreshing}
-                aria-label="データ更新"
-                title="データ更新"
-                sx={refreshButtonSx}
+            ) : null}
+            <Button
+              variant="contained"
+              onClick={handleRefreshData}
+              disabled={refreshing}
+              aria-label="画面を更新"
+              title="画面を更新"
+              sx={refreshButtonSx}
+            >
+              <svg
+                width="17"
+                height="17"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                focusable="false"
+                style={{
+                  display: 'block',
+                  transform: refreshing ? 'rotate(90deg)' : 'none',
+                  transition: 'transform 160ms ease',
+                }}
               >
-                <svg
-                  width="17"
-                  height="17"
-                  viewBox="0 0 24 24"
-                  aria-hidden="true"
-                  focusable="false"
-                  style={{
-                    display: 'block',
-                    transform: refreshing ? 'rotate(90deg)' : 'none',
-                    transition: 'transform 160ms ease',
-                  }}
-                >
-                  <path
-                    d="M20 11a8 8 0 1 0-2.34 5.66"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.4"
-                    strokeLinecap="round"
-                  />
-                  <path
-                    d="M20 4v7h-7"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.4"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </Button>
-            </div>
-          ) : null}
+                <path
+                  d="M20 11a8 8 0 1 0-2.34 5.66"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M20 4v7h-7"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </Button>
+          </div>
         </div>
       </div>
       </div>
@@ -2981,6 +3310,55 @@ const loadDates = async (dates: string[]) => {
         </div>
       ) : null}
 
+      <Modal
+        title="日付検索"
+        open={calendarModalOpen}
+        onCancel={() => {
+          setCalendarModalOpen(false);
+          setCalendarPickerOpen(false);
+        }}
+        footer={null}
+        width={340}
+        destroyOnClose={false}
+        className="calendar-search-modal"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <DatePicker
+              locale={jaJP}
+              value={calendarDate}
+              open={calendarPickerOpen}
+              onOpenChange={setCalendarPickerOpen}
+              onChange={(value) => {
+                if (!value) return;
+                void handleCalendarDateSelect(value.format('YYYYMMDD'));
+              }}
+              disabledDate={(current) => !!current && current.isAfter(dayjs().tz('Asia/Tokyo'), 'day')}
+              disabled={calendarLoading}
+              allowClear={false}
+              inputReadOnly
+              format="YYYY/MM/DD"
+              placeholder="日付を選択"
+              style={{ flex: 1, minWidth: 0 }}
+            />
+            <Button
+              variant="outlined"
+              onClick={handleClearCalendarSearch}
+              disabled={calendarLoading}
+              sx={{ flexShrink: 0, height: 32, minWidth: 64, textTransform: 'none' }}
+            >
+              クリア
+            </Button>
+          </div>
+          {calendarLoading ? (
+            <div style={{ fontSize: '0.84em', color: '#607d8b' }}>データを検索中...</div>
+          ) : calendarSearchDateKey ? (
+            <div style={{ fontSize: '0.84em', color: '#455a64' }}>
+              表示中: {formatDateKeyForCalendar(calendarSearchDateKey)}
+            </div>
+          ) : null}
+        </div>
+      </Modal>
       <Modal
         title={todayDetailItem ? `${todayDetailItem.machineNumber ?? '-'}番台 / ${todayDetailItem.name ?? '-'}` : ''}
         open={todayDetailModalOpen}

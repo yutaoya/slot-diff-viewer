@@ -1,0 +1,1677 @@
+[
+    {
+        "id":  "my_juggler_5",
+        "family":  "juggler",
+        "name":  "マイジャグラーV",
+        "aliases":  [
+                        "マイジャグラーV",
+                        "マイジャグラーⅤ",
+                        "マイジャグラー5"
+                    ],
+        "settings":  [
+                         1,
+                         2,
+                         3,
+                         4,
+                         5,
+                         6
+                     ],
+        "elements":  {
+                         "big":  {
+                                     "id":  "big",
+                                     "label":  "BIG",
+                                     "countKey":  "big",
+                                     "denominators":  [
+                                                          273.1,
+                                                          270.8,
+                                                          266.4,
+                                                          254,
+                                                          240.1,
+                                                          229.1
+                                                      ]
+                                 },
+                         "reg":  {
+                                     "id":  "reg",
+                                     "label":  "REG",
+                                     "countKey":  "reg",
+                                     "denominators":  [
+                                                          409.6,
+                                                          385.5,
+                                                          336.1,
+                                                          290,
+                                                          268.6,
+                                                          229.1
+                                                      ]
+                                 },
+                         "smallRole":  {
+                                           "id":  "grape",
+                                           "label":  "ぶどう",
+                                           "countKey":  "grape",
+                                           "denominators":  [
+                                                                5.9,
+                                                                5.85,
+                                                                5.8,
+                                                                5.78,
+                                                                5.76,
+                                                                5.66
+                                                            ]
+                                       }
+                     },
+        "samaiCalculation":  {
+                                 "targetCountKey":  "grape",
+                                 "targetPayout":  8,
+                                 "bigCountKey":  "big",
+                                 "regCountKey":  "reg",
+                                 "startingBigCountKey":  "startingBig",
+                                 "startingRegCountKey":  "startingReg",
+                                 "bigPayout":  240,
+                                 "regPayout":  96,
+                                 "defaultLevel":  "cherry",
+                                 "levels":  [
+                                                {
+                                                    "id":  "free",
+                                                    "label":  "適当打ち",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  51.99,
+                                                                             "payout":  2
+                                                                         },
+                                                                         {
+                                                                             "denominator":  4608,
+                                                                             "payout":  14
+                                                                         },
+                                                                         {
+                                                                             "denominator":  10186.11,
+                                                                             "payout":  10
+                                                                         }
+                                                                     ]
+                                                },
+                                                {
+                                                    "id":  "cherry",
+                                                    "label":  "チェリー狙い",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  34.66,
+                                                                             "payout":  2
+                                                                         }
+                                                                     ]
+                                                },
+                                                {
+                                                    "id":  "technical",
+                                                    "label":  "完全技術介入",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  34.66,
+                                                                             "payout":  2
+                                                                         },
+                                                                         {
+                                                                             "denominator":  1024,
+                                                                             "payout":  14
+                                                                         },
+                                                                         {
+                                                                             "denominator":  1024,
+                                                                             "payout":  10
+                                                                         }
+                                                                     ]
+                                                }
+                                            ]
+                             }
+    },
+    {
+        "id":  "juggler_gogo3",
+        "family":  "juggler",
+        "name":  "ゴーゴージャグラー3",
+        "aliases":  [
+                        "ゴーゴージャグラー3",
+                        "ゴーゴージャグラー３",
+                        "ゴージャグ3"
+                    ],
+        "settings":  [
+                         1,
+                         2,
+                         3,
+                         4,
+                         5,
+                         6
+                     ],
+        "elements":  {
+                         "big":  {
+                                     "id":  "big",
+                                     "label":  "BIG",
+                                     "countKey":  "big",
+                                     "denominators":  [
+                                                          259.04,
+                                                          258.02,
+                                                          257,
+                                                          254.02,
+                                                          247.31,
+                                                          234.9
+                                                      ]
+                                 },
+                         "reg":  {
+                                     "id":  "reg",
+                                     "label":  "REG",
+                                     "countKey":  "reg",
+                                     "denominators":  [
+                                                          354.25,
+                                                          332.67,
+                                                          306.24,
+                                                          268.59,
+                                                          247.31,
+                                                          234.9
+                                                      ]
+                                 },
+                         "smallRole":  {
+                                           "id":  "grape",
+                                           "label":  "ぶどう",
+                                           "countKey":  "grape",
+                                           "denominators":  [
+                                                                6.25,
+                                                                6.2,
+                                                                6.15,
+                                                                6.07,
+                                                                6,
+                                                                5.92
+                                                            ]
+                                       }
+                     },
+        "samaiCalculation":  {
+                                 "targetCountKey":  "grape",
+                                 "targetPayout":  8,
+                                 "bigCountKey":  "big",
+                                 "regCountKey":  "reg",
+                                 "startingBigCountKey":  "startingBig",
+                                 "startingRegCountKey":  "startingReg",
+                                 "bigPayout":  240,
+                                 "regPayout":  96,
+                                 "defaultLevel":  "cherry",
+                                 "levels":  [
+                                                {
+                                                    "id":  "free",
+                                                    "label":  "適当打ち",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  49.8,
+                                                                             "payout":  2
+                                                                         },
+                                                                         {
+                                                                             "denominator":  4915.2,
+                                                                             "payout":  14
+                                                                         },
+                                                                         {
+                                                                             "denominator":  10865.18,
+                                                                             "payout":  10
+                                                                         }
+                                                                     ]
+                                                },
+                                                {
+                                                    "id":  "cherry",
+                                                    "label":  "チェリー狙い",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  33.2,
+                                                                             "payout":  2
+                                                                         }
+                                                                     ]
+                                                },
+                                                {
+                                                    "id":  "technical",
+                                                    "label":  "完全技術介入",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  33.2,
+                                                                             "payout":  2
+                                                                         },
+                                                                         {
+                                                                             "denominator":  1092.27,
+                                                                             "payout":  14
+                                                                         },
+                                                                         {
+                                                                             "denominator":  1092.27,
+                                                                             "payout":  10
+                                                                         }
+                                                                     ]
+                                                }
+                                            ]
+                             }
+    },
+    {
+        "id":  "juggler_happyv3",
+        "family":  "juggler",
+        "name":  "ハッピージャグラーV III",
+        "aliases":  [
+                        "ハッピージャグラーV III",
+                        "ハッピージャグラーVⅢ",
+                        "ハッピージャグラーVIII",
+                        "ハッピージャグラーVII",
+                        "ハッピージャグラーV3",
+                        "ハッピージャグラー"
+                    ],
+        "settings":  [
+                         1,
+                         2,
+                         3,
+                         4,
+                         5,
+                         6
+                     ],
+        "elements":  {
+                         "big":  {
+                                     "id":  "big",
+                                     "label":  "BIG",
+                                     "countKey":  "big",
+                                     "denominators":  [
+                                                          273.07,
+                                                          270.81,
+                                                          263.2,
+                                                          254.02,
+                                                          239.18,
+                                                          225.99
+                                                      ]
+                                 },
+                         "reg":  {
+                                     "id":  "reg",
+                                     "label":  "REG",
+                                     "countKey":  "reg",
+                                     "denominators":  [
+                                                          397.19,
+                                                          362.08,
+                                                          332.67,
+                                                          300.62,
+                                                          273.07,
+                                                          256
+                                                      ]
+                                 },
+                         "smallRole":  {
+                                           "id":  "grape",
+                                           "label":  "ぶどう",
+                                           "countKey":  "grape",
+                                           "denominators":  [
+                                                                6.04,
+                                                                6.01,
+                                                                5.98,
+                                                                5.84,
+                                                                5.81,
+                                                                5.79
+                                                            ]
+                                       }
+                     },
+        "samaiCalculation":  {
+                                 "targetCountKey":  "grape",
+                                 "targetPayout":  8,
+                                 "bigCountKey":  "big",
+                                 "regCountKey":  "reg",
+                                 "startingBigCountKey":  "startingBig",
+                                 "startingRegCountKey":  "startingReg",
+                                 "bigPayout":  240,
+                                 "regPayout":  96,
+                                 "defaultLevel":  "cherry",
+                                 "levels":  [
+                                                {
+                                                    "id":  "free",
+                                                    "label":  "適当打ち",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  84.82,
+                                                                             "payout":  4
+                                                                         },
+                                                                         {
+                                                                             "denominator":  1474.56,
+                                                                             "payout":  14
+                                                                         },
+                                                                         {
+                                                                             "denominator":  3802.81,
+                                                                             "payout":  10
+                                                                         }
+                                                                     ]
+                                                },
+                                                {
+                                                    "id":  "cherry",
+                                                    "label":  "チェリー狙い",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  56.55,
+                                                                             "payout":  4
+                                                                         }
+                                                                     ]
+                                                },
+                                                {
+                                                    "id":  "technical",
+                                                    "label":  "完全技術介入",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  56.55,
+                                                                             "payout":  4
+                                                                         },
+                                                                         {
+                                                                             "denominator":  655.36,
+                                                                             "payout":  14
+                                                                         },
+                                                                         {
+                                                                             "denominator":  655.36,
+                                                                             "payout":  10
+                                                                         }
+                                                                     ]
+                                                }
+                                            ]
+                             }
+    },
+    {
+        "id":  "juggler_funkey2",
+        "family":  "juggler",
+        "name":  "ファンキージャグラー2",
+        "aliases":  [
+                        "ファンキージャグラー2",
+                        "ファンキージャグラー２ＫＴ"
+                    ],
+        "settings":  [
+                         1,
+                         2,
+                         3,
+                         4,
+                         5,
+                         6
+                     ],
+        "elements":  {
+                         "big":  {
+                                     "id":  "big",
+                                     "label":  "BB",
+                                     "countKey":  "big",
+                                     "denominators":  [
+                                                          266.4,
+                                                          259,
+                                                          256,
+                                                          249.2,
+                                                          240.1,
+                                                          219.9
+                                                      ]
+                                 },
+                         "reg":  {
+                                     "id":  "reg",
+                                     "label":  "RB",
+                                     "countKey":  "reg",
+                                     "denominators":  [
+                                                          439.8,
+                                                          407.1,
+                                                          366.1,
+                                                          322.8,
+                                                          299.3,
+                                                          262.1
+                                                      ]
+                                 },
+                         "smallRole":  {
+                                           "id":  "grape",
+                                           "label":  "ぶどう",
+                                           "countKey":  "grape",
+                                           "denominators":  [
+                                                                5.94,
+                                                                5.92,
+                                                                5.88,
+                                                                5.83,
+                                                                5.76,
+                                                                5.67
+                                                            ]
+                                       }
+                     },
+        "samaiCalculation":  {
+                                 "targetCountKey":  "grape",
+                                 "targetPayout":  8,
+                                 "bigCountKey":  "big",
+                                 "regCountKey":  "reg",
+                                 "startingBigCountKey":  "startingBig",
+                                 "startingRegCountKey":  "startingReg",
+                                 "bigPayout":  240,
+                                 "regPayout":  96,
+                                 "defaultLevel":  "cherry",
+                                 "levels":  [
+                                                {
+                                                    "id":  "free",
+                                                    "label":  "適当打ち",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  53.43,
+                                                                             "payout":  2
+                                                                         },
+                                                                         {
+                                                                             "denominator":  4915.2,
+                                                                             "payout":  14
+                                                                         },
+                                                                         {
+                                                                             "denominator":  10865.18,
+                                                                             "payout":  10
+                                                                         }
+                                                                     ]
+                                                },
+                                                {
+                                                    "id":  "cherry",
+                                                    "label":  "チェリー狙い",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  35.62,
+                                                                             "payout":  2
+                                                                         }
+                                                                     ]
+                                                },
+                                                {
+                                                    "id":  "technical",
+                                                    "label":  "完全技術介入",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  35.62,
+                                                                             "payout":  2
+                                                                         },
+                                                                         {
+                                                                             "denominator":  1092.27,
+                                                                             "payout":  14
+                                                                         },
+                                                                         {
+                                                                             "denominator":  1092.27,
+                                                                             "payout":  10
+                                                                         }
+                                                                     ]
+                                                }
+                                            ]
+                             }
+    },
+    {
+        "id":  "juggler_mr",
+        "family":  "juggler",
+        "name":  "ミスタージャグラー",
+        "aliases":  [
+                        "ミスタージャグラー",
+                        "Mr.ジャグラー",
+                        "MRジャグラー"
+                    ],
+        "settings":  [
+                         1,
+                         2,
+                         3,
+                         4,
+                         5,
+                         6
+                     ],
+        "elements":  {
+                         "big":  {
+                                     "id":  "big",
+                                     "label":  "BIG",
+                                     "countKey":  "big",
+                                     "denominators":  [
+                                                          268.59,
+                                                          267.49,
+                                                          260.06,
+                                                          249.19,
+                                                          240.94,
+                                                          237.45
+                                                      ]
+                                 },
+                         "reg":  {
+                                     "id":  "reg",
+                                     "label":  "REG",
+                                     "countKey":  "reg",
+                                     "denominators":  [
+                                                          374.49,
+                                                          354.25,
+                                                          330.99,
+                                                          291.27,
+                                                          257,
+                                                          237.45
+                                                      ]
+                                 },
+                         "smallRole":  {
+                                           "id":  "grape",
+                                           "label":  "ぶどう",
+                                           "countKey":  "grape",
+                                           "denominators":  [
+                                                                6.29,
+                                                                6.22,
+                                                                6.15,
+                                                                6.09,
+                                                                6.02,
+                                                                5.96
+                                                            ]
+                                       }
+                     },
+        "samaiCalculation":  {
+                                 "targetCountKey":  "grape",
+                                 "targetPayout":  8,
+                                 "bigCountKey":  "big",
+                                 "regCountKey":  "reg",
+                                 "startingBigCountKey":  "startingBig",
+                                 "startingRegCountKey":  "startingReg",
+                                 "bigPayout":  240,
+                                 "regPayout":  96,
+                                 "defaultLevel":  "cherry",
+                                 "levels":  [
+                                                {
+                                                    "id":  "free",
+                                                    "label":  "適当打ち",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  55.86,
+                                                                             "payout":  4
+                                                                         },
+                                                                         {
+                                                                             "denominator":  5898.24,
+                                                                             "payout":  14
+                                                                         },
+                                                                         {
+                                                                             "denominator":  1629.78,
+                                                                             "payout":  10
+                                                                         }
+                                                                     ]
+                                                },
+                                                {
+                                                    "id":  "cherry",
+                                                    "label":  "チェリー狙い",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  37.24,
+                                                                             "payout":  4
+                                                                         }
+                                                                     ]
+                                                },
+                                                {
+                                                    "id":  "technical",
+                                                    "label":  "完全技術介入",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  37.24,
+                                                                             "payout":  4
+                                                                         },
+                                                                         {
+                                                                             "denominator":  655.36,
+                                                                             "payout":  14
+                                                                         },
+                                                                         {
+                                                                             "denominator":  655.36,
+                                                                             "payout":  10
+                                                                         }
+                                                                     ]
+                                                }
+                                            ]
+                             }
+    },
+    {
+        "id":  "juggler_neo_im_ex",
+        "family":  "juggler",
+        "name":  "ネオアイムジャグラーEX",
+        "aliases":  [
+                        "アイムジャグラーEX",
+                        "ネオアイムジャグラーEX",
+                        "ニューアイムジャグラーEX"
+                    ],
+        "settings":  [
+                         1,
+                         2,
+                         3,
+                         4,
+                         5,
+                         6
+                     ],
+        "elements":  {
+                         "big":  {
+                                     "id":  "big",
+                                     "label":  "BIG",
+                                     "countKey":  "big",
+                                     "denominators":  [
+                                                          273.07,
+                                                          269.7,
+                                                          269.7,
+                                                          259.04,
+                                                          259.04,
+                                                          255
+                                                      ]
+                                 },
+                         "reg":  {
+                                     "id":  "reg",
+                                     "label":  "REG",
+                                     "countKey":  "reg",
+                                     "denominators":  [
+                                                          439.84,
+                                                          399.61,
+                                                          330.99,
+                                                          315.08,
+                                                          255,
+                                                          255
+                                                      ]
+                                 },
+                         "smallRole":  {
+                                           "id":  "grape",
+                                           "label":  "ぶどう",
+                                           "countKey":  "grape",
+                                           "denominators":  [
+                                                                6.02,
+                                                                6.02,
+                                                                6.02,
+                                                                6.02,
+                                                                6.02,
+                                                                5.78
+                                                            ]
+                                       }
+                     },
+        "samaiCalculation":  {
+                                 "targetCountKey":  "grape",
+                                 "targetPayout":  8,
+                                 "bigCountKey":  "big",
+                                 "regCountKey":  "reg",
+                                 "startingBigCountKey":  "startingBig",
+                                 "startingRegCountKey":  "startingReg",
+                                 "bigPayout":  252,
+                                 "regPayout":  96,
+                                 "defaultLevel":  "cherry",
+                                 "levels":  [
+                                                {
+                                                    "id":  "free",
+                                                    "label":  "適当打ち",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  53.43,
+                                                                             "payout":  2
+                                                                         },
+                                                                         {
+                                                                             "denominator":  4915.2,
+                                                                             "payout":  14
+                                                                         },
+                                                                         {
+                                                                             "denominator":  10865.18,
+                                                                             "payout":  10
+                                                                         }
+                                                                     ]
+                                                },
+                                                {
+                                                    "id":  "cherry",
+                                                    "label":  "チェリー狙い",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  35.62,
+                                                                             "payout":  2
+                                                                         }
+                                                                     ]
+                                                },
+                                                {
+                                                    "id":  "technical",
+                                                    "label":  "完全技術介入",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  35.62,
+                                                                             "payout":  2
+                                                                         },
+                                                                         {
+                                                                             "denominator":  1092.27,
+                                                                             "payout":  14
+                                                                         },
+                                                                         {
+                                                                             "denominator":  1092.27,
+                                                                             "payout":  10
+                                                                         }
+                                                                     ]
+                                                }
+                                            ]
+                             }
+    },
+    {
+        "id":  "juggler_s_girls",
+        "family":  "juggler",
+        "name":  "ジャグラーガールズSS",
+        "aliases":  [
+                        "ジャグラーガールズSS",
+                        "ジャグラーガールズ"
+                    ],
+        "settings":  [
+                         1,
+                         2,
+                         3,
+                         4,
+                         5,
+                         6
+                     ],
+        "elements":  {
+                         "big":  {
+                                     "id":  "big",
+                                     "label":  "BIG",
+                                     "countKey":  "big",
+                                     "denominators":  [
+                                                          273.07,
+                                                          270.81,
+                                                          260.06,
+                                                          250.14,
+                                                          243.63,
+                                                          225.99
+                                                      ]
+                                 },
+                         "reg":  {
+                                     "id":  "reg",
+                                     "label":  "REG",
+                                     "countKey":  "reg",
+                                     "denominators":  [
+                                                          381.02,
+                                                          350.46,
+                                                          316.6,
+                                                          281.27,
+                                                          270.81,
+                                                          252.06
+                                                      ]
+                                 },
+                         "smallRole":  {
+                                           "id":  "grape",
+                                           "label":  "ぶどう",
+                                           "countKey":  "grape",
+                                           "denominators":  [
+                                                                5.98,
+                                                                5.98,
+                                                                5.98,
+                                                                5.98,
+                                                                5.88,
+                                                                5.83
+                                                            ]
+                                       }
+                     },
+        "samaiCalculation":  {
+                                 "targetCountKey":  "grape",
+                                 "targetPayout":  8,
+                                 "bigCountKey":  "big",
+                                 "regCountKey":  "reg",
+                                 "startingBigCountKey":  "startingBig",
+                                 "startingRegCountKey":  "startingReg",
+                                 "bigPayout":  240,
+                                 "regPayout":  96,
+                                 "defaultLevel":  "cherry",
+                                 "levels":  [
+                                                {
+                                                    "id":  "free",
+                                                    "label":  "適当打ち",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  49.95,
+                                                                             "payout":  2
+                                                                         },
+                                                                         {
+                                                                             "denominator":  4915.2,
+                                                                             "payout":  14
+                                                                         },
+                                                                         {
+                                                                             "denominator":  10865.18,
+                                                                             "payout":  10
+                                                                         }
+                                                                     ]
+                                                },
+                                                {
+                                                    "id":  "cherry",
+                                                    "label":  "チェリー狙い",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  33.3,
+                                                                             "payout":  2
+                                                                         }
+                                                                     ]
+                                                },
+                                                {
+                                                    "id":  "technical",
+                                                    "label":  "完全技術介入",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  33.3,
+                                                                             "payout":  2
+                                                                         },
+                                                                         {
+                                                                             "denominator":  1092.27,
+                                                                             "payout":  14
+                                                                         },
+                                                                         {
+                                                                             "denominator":  1092.27,
+                                                                             "payout":  10
+                                                                         }
+                                                                     ]
+                                                }
+                                            ]
+                             }
+    },
+    {
+        "id":  "juggler_s_ultra_miracle",
+        "family":  "juggler",
+        "name":  "ウルトラミラクルジャグラー",
+        "aliases":  [
+                        "ウルトラミラクルジャグラー",
+                        "ウルトラミラクルジャグラ"
+                    ],
+        "settings":  [
+                         1,
+                         2,
+                         3,
+                         4,
+                         5,
+                         6
+                     ],
+        "elements":  {
+                         "big":  {
+                                     "id":  "big",
+                                     "label":  "BIG",
+                                     "countKey":  "big",
+                                     "denominators":  [
+                                                          267.49,
+                                                          261.1,
+                                                          256,
+                                                          242.73,
+                                                          233.22,
+                                                          216.29
+                                                      ]
+                                 },
+                         "reg":  {
+                                     "id":  "reg",
+                                     "label":  "REG",
+                                     "countKey":  "reg",
+                                     "denominators":  [
+                                                          425.56,
+                                                          402.06,
+                                                          350.46,
+                                                          322.84,
+                                                          297.89,
+                                                          277.69
+                                                      ]
+                                 },
+                         "smallRole":  {
+                                           "id":  "grape",
+                                           "label":  "ぶどう",
+                                           "countKey":  "grape",
+                                           "denominators":  [
+                                                                5.94,
+                                                                5.94,
+                                                                5.94,
+                                                                5.93,
+                                                                5.93,
+                                                                5.93
+                                                            ]
+                                       }
+                     },
+        "samaiCalculation":  {
+                                 "targetCountKey":  "grape",
+                                 "targetPayout":  8,
+                                 "bigCountKey":  "big",
+                                 "regCountKey":  "reg",
+                                 "startingBigCountKey":  "startingBig",
+                                 "startingRegCountKey":  "startingReg",
+                                 "bigPayout":  240,
+                                 "regPayout":  96,
+                                 "defaultLevel":  "cherry",
+                                 "levels":  [
+                                                {
+                                                    "id":  "free",
+                                                    "label":  "適当打ち",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  52.29,
+                                                                             "payout":  2
+                                                                         },
+                                                                         {
+                                                                             "denominator":  4608,
+                                                                             "payout":  14
+                                                                         },
+                                                                         {
+                                                                             "denominator":  10186.11,
+                                                                             "payout":  10
+                                                                         }
+                                                                     ]
+                                                },
+                                                {
+                                                    "id":  "cherry",
+                                                    "label":  "チェリー狙い",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  34.86,
+                                                                             "payout":  2
+                                                                         }
+                                                                     ]
+                                                },
+                                                {
+                                                    "id":  "technical",
+                                                    "label":  "完全技術介入",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  34.86,
+                                                                             "payout":  2
+                                                                         },
+                                                                         {
+                                                                             "denominator":  1024,
+                                                                             "payout":  14
+                                                                         },
+                                                                         {
+                                                                             "denominator":  1024,
+                                                                             "payout":  10
+                                                                         }
+                                                                     ]
+                                                }
+                                            ]
+                             }
+    },
+    {
+        "id":  "hanahana_houou_tensyou",
+        "family":  "hanahana",
+        "name":  "ハナハナホウオウ〜天翔〜-30",
+        "aliases":  [
+                        "ハナハナホウオウ〜天翔〜-30",
+                        "ハナハナホウオウ天翔",
+                        "ホウオウ天翔",
+                        "鳳凰天翔"
+                    ],
+        "settings":  [
+                         1,
+                         2,
+                         3,
+                         4,
+                         5,
+                         6
+                     ],
+        "elements":  {
+                         "big":  {
+                                     "id":  "big",
+                                     "label":  "BIG",
+                                     "countKey":  "big",
+                                     "denominators":  [
+                                                          297,
+                                                          284,
+                                                          273,
+                                                          262,
+                                                          249,
+                                                          236
+                                                      ]
+                                 },
+                         "reg":  {
+                                     "id":  "reg",
+                                     "label":  "REG",
+                                     "countKey":  "reg",
+                                     "denominators":  [
+                                                          496,
+                                                          458,
+                                                          425,
+                                                          397,
+                                                          366,
+                                                          337
+                                                      ]
+                                 },
+                         "smallRole":  {
+                                           "id":  "bell",
+                                           "label":  "ベル",
+                                           "countKey":  "bell",
+                                           "denominators":  [
+                                                                7.5,
+                                                                7.45,
+                                                                7.4,
+                                                                7.35,
+                                                                7.3,
+                                                                7.22
+                                                            ]
+                                       }
+                     },
+        "samaiCalculation":  {
+                                 "targetCountKey":  "bell",
+                                 "targetPayout":  10,
+                                 "bigCountKey":  "big",
+                                 "regCountKey":  "reg",
+                                 "startingBigCountKey":  "startingBig",
+                                 "startingRegCountKey":  "startingReg",
+                                 "bigPayout":  240,
+                                 "regPayout":  120,
+                                 "defaultLevel":  "cherry",
+                                 "levels":  [
+                                                {
+                                                    "id":  "free",
+                                                    "label":  "適当打ち",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  72.02,
+                                                                             "payout":  4
+                                                                         },
+                                                                         {
+                                                                             "denominator":  286.25,
+                                                                             "payout":  6
+                                                                         }
+                                                                     ]
+                                                },
+                                                {
+                                                    "id":  "cherry",
+                                                    "label":  "チェリー狙い",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  48.01,
+                                                                             "payout":  4
+                                                                         },
+                                                                         {
+                                                                             "denominator":  286.25,
+                                                                             "payout":  6
+                                                                         }
+                                                                     ]
+                                                },
+                                                {
+                                                    "id":  "technical",
+                                                    "label":  "完全技術介入",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  48.01,
+                                                                             "payout":  4
+                                                                         },
+                                                                         {
+                                                                             "denominator":  160.23,
+                                                                             "payout":  6
+                                                                         }
+                                                                     ]
+                                                }
+                                            ]
+                             }
+    },
+    {
+        "id":  "dragon_hanahana_senkou_30",
+        "family":  "hanahana",
+        "name":  "ドラゴンハナハナ〜閃光〜-30",
+        "aliases":  [
+                        "ドラゴンハナハナ〜閃光〜-30",
+                        "ドラゴンハナハナ閃光",
+                        "ドラゴンハナハナ"
+                    ],
+        "settings":  [
+                         1,
+                         2,
+                         3,
+                         4,
+                         5,
+                         6
+                     ],
+        "elements":  {
+                         "big":  {
+                                     "id":  "big",
+                                     "label":  "BIG",
+                                     "countKey":  "big",
+                                     "denominators":  [
+                                                          256,
+                                                          246,
+                                                          235,
+                                                          224,
+                                                          212,
+                                                          199
+                                                      ]
+                                 },
+                         "reg":  {
+                                     "id":  "reg",
+                                     "label":  "REG",
+                                     "countKey":  "reg",
+                                     "denominators":  [
+                                                          642,
+                                                          585,
+                                                          537,
+                                                          489,
+                                                          442,
+                                                          399
+                                                      ]
+                                 },
+                         "smallRole":  {
+                                           "id":  "bell",
+                                           "label":  "ベル",
+                                           "countKey":  "bell",
+                                           "denominators":  [
+                                                                7.13,
+                                                                7.09,
+                                                                7.09,
+                                                                7.02,
+                                                                6.97,
+                                                                6.97
+                                                            ]
+                                       }
+                     },
+        "samaiCalculation":  {
+                                 "targetCountKey":  "bell",
+                                 "targetPayout":  9,
+                                 "bigCountKey":  "big",
+                                 "regCountKey":  "reg",
+                                 "startingBigCountKey":  "startingBig",
+                                 "startingRegCountKey":  "startingReg",
+                                 "bigPayout":  252,
+                                 "regPayout":  96,
+                                 "defaultLevel":  "cherry",
+                                 "levels":  [
+                                                {
+                                                    "id":  "free",
+                                                    "label":  "適当打ち",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  73.03,
+                                                                             "payout":  4
+                                                                         },
+                                                                         {
+                                                                             "denominator":  285.55,
+                                                                             "payout":  6
+                                                                         }
+                                                                     ]
+                                                },
+                                                {
+                                                    "id":  "cherry",
+                                                    "label":  "チェリー狙い",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  48.69,
+                                                                             "payout":  4
+                                                                         },
+                                                                         {
+                                                                             "denominator":  285.55,
+                                                                             "payout":  6
+                                                                         }
+                                                                     ]
+                                                },
+                                                {
+                                                    "id":  "technical",
+                                                    "label":  "完全技術介入",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  48.69,
+                                                                             "payout":  4
+                                                                         },
+                                                                         {
+                                                                             "denominator":  159.84,
+                                                                             "payout":  6
+                                                                         }
+                                                                     ]
+                                                }
+                                            ]
+                             }
+    },
+    {
+        "id":  "s_king_hanahana_30",
+        "family":  "hanahana",
+        "name":  "Sキングハナハナ-30",
+        "aliases":  [
+                        "Sキングハナハナ-30",
+                        "キングハナハナ",
+                        "Sキングハナハナ"
+                    ],
+        "settings":  [
+                         1,
+                         2,
+                         3,
+                         4,
+                         5,
+                         6
+                     ],
+        "elements":  {
+                         "big":  {
+                                     "id":  "big",
+                                     "label":  "BIG",
+                                     "countKey":  "big",
+                                     "denominators":  [
+                                                          292,
+                                                          280,
+                                                          268,
+                                                          257,
+                                                          244,
+                                                          232
+                                                      ]
+                                 },
+                         "reg":  {
+                                     "id":  "reg",
+                                     "label":  "REG",
+                                     "countKey":  "reg",
+                                     "denominators":  [
+                                                          489,
+                                                          452,
+                                                          420,
+                                                          390,
+                                                          360,
+                                                          332
+                                                      ]
+                                 },
+                         "smallRole":  {
+                                           "id":  "bell",
+                                           "label":  "ベル",
+                                           "countKey":  "bell",
+                                           "denominators":  [
+                                                                7.15,
+                                                                7.14,
+                                                                7.14,
+                                                                7,
+                                                                6.95,
+                                                                6.91
+                                                            ]
+                                       }
+                     },
+        "samaiCalculation":  {
+                                 "targetCountKey":  "bell",
+                                 "targetPayout":  9,
+                                 "bigCountKey":  "big",
+                                 "regCountKey":  "reg",
+                                 "startingBigCountKey":  "startingBig",
+                                 "startingRegCountKey":  "startingReg",
+                                 "bigPayout":  260,
+                                 "regPayout":  120,
+                                 "defaultLevel":  "cherry",
+                                 "levels":  [
+                                                {
+                                                    "id":  "free",
+                                                    "label":  "適当打ち",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  72.02,
+                                                                             "payout":  4
+                                                                         },
+                                                                         {
+                                                                             "denominator":  285.83,
+                                                                             "payout":  6
+                                                                         }
+                                                                     ]
+                                                },
+                                                {
+                                                    "id":  "cherry",
+                                                    "label":  "チェリー狙い",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  48.01,
+                                                                             "payout":  4
+                                                                         },
+                                                                         {
+                                                                             "denominator":  285.83,
+                                                                             "payout":  6
+                                                                         }
+                                                                     ]
+                                                },
+                                                {
+                                                    "id":  "technical",
+                                                    "label":  "完全技術介入",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  48.01,
+                                                                             "payout":  4
+                                                                         },
+                                                                         {
+                                                                             "denominator":  160.23,
+                                                                             "payout":  6
+                                                                         }
+                                                                     ]
+                                                }
+                                            ]
+                             }
+    },
+    {
+        "id":  "star_hanahana_30",
+        "family":  "hanahana",
+        "name":  "スターハナハナ-30",
+        "aliases":  [
+                        "スターハナハナ-30",
+                        "スターハナハナ"
+                    ],
+        "settings":  [
+                         1,
+                         2,
+                         3,
+                         4,
+                         5,
+                         6
+                     ],
+        "elements":  {
+                         "big":  {
+                                     "id":  "big",
+                                     "label":  "BIG",
+                                     "countKey":  "big",
+                                     "denominators":  [
+                                                          269.7,
+                                                          262.14,
+                                                          252.06,
+                                                          240.06,
+                                                          229.15,
+                                                          217.73
+                                                      ]
+                                 },
+                         "reg":  {
+                                     "id":  "reg",
+                                     "label":  "REG",
+                                     "countKey":  "reg",
+                                     "denominators":  [
+                                                          387.79,
+                                                          354.25,
+                                                          321.25,
+                                                          292.57,
+                                                          267.49,
+                                                          241.83
+                                                      ]
+                                 },
+                         "smallRole":  {
+                                           "id":  "bell",
+                                           "label":  "ベル",
+                                           "countKey":  "bell",
+                                           "denominators":  [
+                                                                6.36,
+                                                                6.3,
+                                                                6.3,
+                                                                6.26,
+                                                                6.2,
+                                                                6.2
+                                                            ]
+                                       }
+                     },
+        "samaiCalculation":  {
+                                 "targetCountKey":  "bell",
+                                 "targetPayout":  8,
+                                 "bigCountKey":  "big",
+                                 "regCountKey":  "reg",
+                                 "startingBigCountKey":  "startingBig",
+                                 "startingRegCountKey":  "startingReg",
+                                 "bigPayout":  240,
+                                 "regPayout":  96,
+                                 "defaultLevel":  "cherry",
+                                 "levels":  [
+                                                {
+                                                    "id":  "free",
+                                                    "label":  "適当打ち",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  73.03,
+                                                                             "payout":  4
+                                                                         },
+                                                                         {
+                                                                             "denominator":  285.55,
+                                                                             "payout":  6
+                                                                         }
+                                                                     ]
+                                                },
+                                                {
+                                                    "id":  "cherry",
+                                                    "label":  "チェリー狙い",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  48.69,
+                                                                             "payout":  4
+                                                                         },
+                                                                         {
+                                                                             "denominator":  285.55,
+                                                                             "payout":  6
+                                                                         }
+                                                                     ]
+                                                },
+                                                {
+                                                    "id":  "technical",
+                                                    "label":  "完全技術介入",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  48.69,
+                                                                             "payout":  4
+                                                                         },
+                                                                         {
+                                                                             "denominator":  159.84,
+                                                                             "payout":  6
+                                                                         }
+                                                                     ]
+                                                }
+                                            ]
+                             }
+    },
+    {
+        "id":  "lb_new_king_hanahana_v",
+        "family":  "hanahana",
+        "name":  "LBニューキングハナハナV",
+        "aliases":  [
+                        "LBニューキングハナハナV",
+                        "ニューキングハナハナV",
+                        "ニューキングハナハナ",
+                        "LBニューキングハナハナ"
+                    ],
+        "settings":  [
+                         1,
+                         2,
+                         3,
+                         4,
+                         5
+                     ],
+        "settingLabels":  [
+                              "1",
+                              "2",
+                              "3",
+                              "4",
+                              "V"
+                          ],
+        "elements":  {
+                         "big":  {
+                                     "id":  "big",
+                                     "label":  "BIG",
+                                     "countKey":  "big",
+                                     "denominators":  [
+                                                          299.25,
+                                                          291.27,
+                                                          281.27,
+                                                          268.59,
+                                                          253.03
+                                                      ]
+                                 },
+                         "reg":  {
+                                     "id":  "reg",
+                                     "label":  "REG",
+                                     "countKey":  "reg",
+                                     "denominators":  [
+                                                          496.48,
+                                                          471.48,
+                                                          442.81,
+                                                          409.6,
+                                                          372.36
+                                                      ]
+                                 },
+                         "smallRole":  {
+                                           "id":  "bell",
+                                           "label":  "ベル",
+                                           "countKey":  "bell",
+                                           "denominators":  [
+                                                                7.63,
+                                                                7.5,
+                                                                7.47,
+                                                                7.38,
+                                                                7.27
+                                                            ]
+                                       }
+                     },
+        "samaiCalculation":  {
+                                 "targetCountKey":  "bell",
+                                 "targetPayout":  8,
+                                 "bigCountKey":  "big",
+                                 "regCountKey":  "reg",
+                                 "startingBigCountKey":  "startingBig",
+                                 "startingRegCountKey":  "startingReg",
+                                 "bigPayout":  312,
+                                 "regPayout":  130,
+                                 "defaultLevel":  "cherry",
+                                 "levels":  [
+                                                {
+                                                    "id":  "free",
+                                                    "label":  "適当打ち",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  72.02,
+                                                                             "payout":  4
+                                                                         },
+                                                                         {
+                                                                             "denominator":  285.83,
+                                                                             "payout":  10
+                                                                         }
+                                                                     ]
+                                                },
+                                                {
+                                                    "id":  "cherry",
+                                                    "label":  "チェリー狙い",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  48.01,
+                                                                             "payout":  4
+                                                                         },
+                                                                         {
+                                                                             "denominator":  285.83,
+                                                                             "payout":  10
+                                                                         }
+                                                                     ]
+                                                },
+                                                {
+                                                    "id":  "technical",
+                                                    "label":  "完全技術介入",
+                                                    "otherPayouts":  [
+                                                                         {
+                                                                             "denominator":  7.3,
+                                                                             "payout":  3
+                                                                         },
+                                                                         {
+                                                                             "denominator":  48.01,
+                                                                             "payout":  4
+                                                                         },
+                                                                         {
+                                                                             "denominator":  160.23,
+                                                                             "payout":  10
+                                                                         }
+                                                                     ]
+                                                }
+                                            ]
+                             }
+    }
+]
+

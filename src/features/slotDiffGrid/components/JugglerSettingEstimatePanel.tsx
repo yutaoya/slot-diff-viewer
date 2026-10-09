@@ -1,5 +1,5 @@
 import type { CSSProperties, FC } from 'react';
-import { estimateJugglerSetting } from '../jugglerSettingHeatmap';
+import { estimateSetting } from '../jugglerSettingHeatmap';
 import type { TodaySnapshotItem } from '../types';
 
 type Props = {
@@ -68,16 +68,24 @@ function formatCount(value: number | null | undefined): string {
   return `${value.toLocaleString()}回`;
 }
 
+function probabilityWidth(value: number): string {
+  if (!Number.isFinite(value)) return '0%';
+  return `${Math.max(0, Math.min(1, value)) * 100}%`;
+}
+
 function barColor(setting: number): string {
   const colors = ['#64748b', '#4f7ca8', '#2b8a9f', '#1f9a6f', '#c98312', '#d13232'];
   return colors[Math.max(0, Math.min(colors.length - 1, setting - 1))];
 }
 
 export const JugglerSettingEstimatePanel: FC<Props> = ({ snapshot }) => {
-  const estimate = snapshot ? estimateJugglerSetting(snapshot) : null;
+  const estimate = snapshot ? estimateSetting(snapshot) : null;
   if (!estimate) return null;
 
-  const maxProbability = Math.max(...estimate.settingChartRows.map((row) => row.probability), 0.001);
+  const topSetting = estimate.settingChartRows.reduce((best, row) => (
+    row.probability > best.probability ? row : best
+  ), estimate.settingChartRows[0]).setting;
+  const smallRoleLabel = estimate.smallRoleLabel;
 
   return (
     <div style={panelStyle}>
@@ -102,20 +110,22 @@ export const JugglerSettingEstimatePanel: FC<Props> = ({ snapshot }) => {
           <div>設定</div>
           <div>期待度</div>
           <div style={{ textAlign: 'right' }}>割合</div>
-          <div style={{ textAlign: 'right' }}>ブドウ</div>
+          <div style={{ textAlign: 'right' }}>{smallRoleLabel}</div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 5 }}>
           {estimate.settingChartRows.map((row) => {
-            const width = `${Math.max(1.5, (row.probability / maxProbability) * 100)}%`;
+            const isTopSetting = row.setting === topSetting;
             return (
-              <div key={`juggler_setting_chart_${estimate.specId}_${row.setting}`} style={chartRowStyle}>
-                <div style={{ fontWeight: 700, color: '#2f3745' }}>設定{row.setting}</div>
+              <div key={`setting_chart_${estimate.specId}_${row.setting}`} style={chartRowStyle}>
+                <div style={{ fontWeight: 700, color: '#2f3745' }}>設定{row.settingLabel}</div>
                 <div style={{ height: 13, background: '#edf1f5', borderRadius: 2, overflow: 'hidden' }}>
                   <div
+                    data-active={isTopSetting ? 'true' : 'false'}
+                    data-testid={`setting-probability-bar-${row.setting}`}
                     style={{
-                      width,
+                      width: probabilityWidth(row.probability),
                       height: '100%',
-                      background: barColor(row.setting),
+                      background: isTopSetting ? barColor(row.setting) : '#cbd5e1',
                       borderRadius: 2,
                     }}
                   />
@@ -124,7 +134,7 @@ export const JugglerSettingEstimatePanel: FC<Props> = ({ snapshot }) => {
                   {formatPercent(row.probability)}
                 </div>
                 <div style={{ textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#2f3745' }}>
-                  {formatDenominator(row.grapeDenominator)}
+                  {formatDenominator(row.smallRoleDenominator)}
                 </div>
               </div>
             );
@@ -134,12 +144,12 @@ export const JugglerSettingEstimatePanel: FC<Props> = ({ snapshot }) => {
 
       <div style={metricGridStyle}>
         <div style={metricStyle}>
-          <div style={metricLabelStyle}>逆算ブドウ確率</div>
-          <div style={metricValueStyle}>{formatDenominator(estimate.inferredGrapeDenominator)}</div>
+          <div style={metricLabelStyle}>逆算{smallRoleLabel}確率</div>
+          <div style={metricValueStyle}>{formatDenominator(estimate.inferredSmallRoleDenominator)}</div>
         </div>
         <div style={metricStyle}>
-          <div style={metricLabelStyle}>逆算ブドウ回数</div>
-          <div style={metricValueStyle}>{formatCount(estimate.inferredGrapeCount)}</div>
+          <div style={metricLabelStyle}>逆算{smallRoleLabel}回数</div>
+          <div style={metricValueStyle}>{formatCount(estimate.inferredSmallRoleCount)}</div>
         </div>
       </div>
     </div>

@@ -1,13 +1,17 @@
-import React from 'react';
+import React, { Suspense } from 'react';
 import { useEffect } from 'react';
 import { Routes, Route, Navigate, useParams } from 'react-router-dom';
-import { SlotDiffGrid } from './SlotDiffGrid';
+import { AccessGate } from './AccessGate';
+import { ACCESS_ROOT_PATH, DEFAULT_STORE_ID, getStorePath } from './appAccessPath';
 import './App.css';
 
-const DEFAULT_STORE_ID = 'maruhan_chuou';
+const SlotDiffGrid = React.lazy(() =>
+  import('./SlotDiffGrid').then((module) => ({ default: module.SlotDiffGrid }))
+);
 
 const STORE_NAME: Record<string, string> = {
   maruhan_chuou: 'マルハン浜松中央',
+  maruhan_izumi: 'マルハン泉',
   concorde_ichino: 'SUPER CONCORDE 市野',
   rakuen_zaza: '楽園 ザザシティ',
   concorde_kido: 'FLOWERR CONCORDE 木戸',
@@ -24,20 +28,53 @@ function StorePage() {
 
   return (
     <div style={{ padding: 0 }}>
-      <SlotDiffGrid storeId={storeId} />
+      <Suspense fallback={null}>
+        <SlotDiffGrid storeId={storeId} />
+      </Suspense>
     </div>
+  );
+}
+
+function NotFoundPage() {
+  useEffect(() => {
+    document.title = '404 Not Found';
+  }, []);
+
+  return (
+    <main
+      style={{
+        minHeight: '100vh',
+        display: 'grid',
+        placeItems: 'center',
+        padding: 24,
+        boxSizing: 'border-box',
+        fontFamily: 'sans-serif',
+      }}
+    >
+      <div>
+        <h1 style={{ margin: 0, fontSize: 32 }}>404</h1>
+        <p style={{ margin: '8px 0 0' }}>Not Found</p>
+      </div>
+    </main>
   );
 }
 
 export default function App() {
   return (
     <Routes>
-      {/* ルート直下に来たらデフォルト店舗へリダイレクト */}
-      <Route path="/" element={<Navigate to={`/${DEFAULT_STORE_ID}`} replace />} />
-      {/* /:storeId で任意店舗を表示（例: /concorde_ichino） */}
-      <Route path="/:storeId" element={<StorePage />} />
-      {/* 不明ルートもデフォルトへ */}
-      <Route path="*" element={<Navigate to={`/${DEFAULT_STORE_ID}`} replace />} />
+      <Route
+        path={ACCESS_ROOT_PATH}
+        element={<Navigate to={getStorePath(DEFAULT_STORE_ID)} replace />}
+      />
+      <Route
+        path={`${ACCESS_ROOT_PATH}/:storeId`}
+        element={
+          <AccessGate>
+            <StorePage />
+          </AccessGate>
+        }
+      />
+      <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );
 }

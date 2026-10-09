@@ -1,9 +1,6 @@
-import React from 'react';
-import { render, screen } from '@testing-library/react';
-import App from './App';
+import { ACCESS_ROOT_PATH, DEFAULT_STORE_ID, getStorePath } from './appAccessPath';
 
-test('renders learn react link', () => {
-  render(<App />);
-  const linkElement = screen.getByText(/learn react/i);
-  expect(linkElement).toBeInTheDocument();
+test('builds store URLs below the required access path', () => {
+  expect(ACCESS_ROOT_PATH).toBe('/agtmagtm');
+  expect(getStorePath(DEFAULT_STORE_ID)).toBe('/agtmagtm/maruhan_chuou');
 });

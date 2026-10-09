@@ -3,7 +3,7 @@ import dayjs from 'dayjs';
 import utc from 'dayjs/plugin/utc';
 import timezone from 'dayjs/plugin/timezone';
 import type { DisplayMetric } from './gridUtils';
-import { estimateJugglerSetting, type JugglerSettingEstimate } from './jugglerSettingHeatmap';
+import { estimateSetting, type SettingEstimate } from './jugglerSettingHeatmap';
 import type { TodaySnapshotItem, ViewMode } from './types';
 
 dayjs.extend(utc);
@@ -51,19 +51,20 @@ const SLOT_ANALYTICS_SCHEMA_DESCRIPTION = {
     combinedProbabilityDenominator: 'BB+RB合成確率の分母。151 は 1/151 を意味する。',
     flag: 'ユーザーフラグ。0=なし、4=設定456、5=設定56、6=設定6、9=全台系。',
     comment: 'ユーザー入力コメント。未入力は null。',
-    settingEstimate: 'ジャグラー設定判別結果。対象外機種、または games/bb/rb が不足する場合は null。',
+    settingEstimate: 'ジャグラー/ハナハナ系の設定判別結果。対象外機種、または games/bb/rb が不足する場合は null。',
   },
   settingEstimateFields: {
-    target: 'true の場合、この日別データはジャグラー設定判別の対象。',
+    target: 'true の場合、この日別データは設定判別の対象。',
     specId: '判別に使用した機種スペックID。',
-    expectedSetting: '設定1-6の確率分布を使った加重平均値。6に近いほど設定6寄り、1に近いほど設定1寄り。',
+    expectedSetting: '設定別の相対尤度分布を使った加重平均値。高いほど高設定寄り。',
     heatmapScore: 'ヒートマップ表示用の0-1スコア。expectedSetting の高さと回転数による信頼度を反映し、1に近いほど赤が濃い。',
     topSetting: 'probabilities の中で最も確率が高い設定番号。断定設定ではなく最頻推定。',
-    usesGrape: '差枚から逆算したブドウ回数を判別に使えた場合 true。',
-    expectedGrapeDenominator: '推定された設定分布から計算した期待ブドウ確率の分母。5.8 は 1/5.8 を意味し、小さいほどブドウが良い。',
-    inferredGrapeCount: '差枚、総回転数、BB/RB回数、払い出し、その他小役期待値から逆算したブドウ回数。逆算不能なら null。',
-    inferredGrapeDenominator: '逆算ブドウ確率の分母。6.03 は 1/6.03 を意味し、小さいほどブドウが良い。',
-    probabilities: '設定1-6それぞれの推定確率。キーは設定番号、値は0-1の確率。合計は概ね1になる。',
+    usesSmallRole: '直接入力または差枚から逆算した小役回数を判別に使えた場合 true。',
+    smallRoleLabel: '判別に使う小役名。ジャグラーはぶどう、ハナハナはベル。',
+    expectedSmallRoleDenominator: '推定された設定分布から計算した期待小役確率の分母。5.8 は 1/5.8 を意味し、小さいほど小役が良い。',
+    inferredSmallRoleCount: '差枚、総回転数、BB/RB回数、払い出し、その他小役期待値から逆算した小役回数。逆算不能なら null。',
+    inferredSmallRoleDenominator: '逆算小役確率の分母。6.03 は 1/6.03 を意味し、小さいほど小役が良い。',
+    probabilities: '設定ごとの相対尤度。キーは設定番号、値は0-1の割合。合計は概ね1になる。',
   },
 } as const;
 
@@ -272,13 +273,13 @@ function normalizeFlag(value: unknown): number {
   return n === 4 || n === 5 || n === 6 || n === 9 ? n : 0;
 }
 
-function getTopSetting(estimate: JugglerSettingEstimate): number {
-  let topSetting = 1;
+function getTopSetting(estimate: SettingEstimate): number {
+  let topSetting = estimate.settingChartRows[0]?.setting ?? 1;
   let topProbability = -1;
-  estimate.settingProbabilities.forEach((probability, index) => {
-    if (probability > topProbability) {
-      topProbability = probability;
-      topSetting = index + 1;
+  estimate.settingChartRows.forEach((row) => {
+    if (row.probability > topProbability) {
+      topProbability = row.probability;
+      topSetting = row.setting;
     }
   });
   return topSetting;
@@ -304,24 +305,31 @@ function buildSettingEstimate(recordSource: {
     bb: recordSource.bb ?? undefined,
     rb: recordSource.rb ?? undefined,
   };
-  const estimate = estimateJugglerSetting(estimateInput);
+  const estimate = estimateSetting(estimateInput);
 
   if (!estimate) return null;
 
   return {
     target: true,
     specId: estimate.specId,
+    family: estimate.family,
+    smallRoleId: estimate.smallRoleId,
+    smallRoleLabel: estimate.smallRoleLabel,
     expectedSetting: roundNumber(estimate.expectedSetting, 4),
     heatmapScore: roundNumber(estimate.heatmapScore, 4),
     topSetting: getTopSetting(estimate),
+    usesSmallRole: estimate.usesSmallRole,
+    expectedSmallRoleDenominator: roundNumber(estimate.expectedSmallRoleDenominator, 4),
+    inferredSmallRoleCount: estimate.inferredSmallRoleCount,
+    inferredSmallRoleDenominator: roundNumber(estimate.inferredSmallRoleDenominator, 4),
     usesGrape: estimate.usesGrape,
     expectedGrapeDenominator: roundNumber(estimate.expectedGrapeDenominator, 4),
     inferredGrapeCount: estimate.inferredGrapeCount,
     inferredGrapeDenominator: roundNumber(estimate.inferredGrapeDenominator, 4),
     probabilities: Object.fromEntries(
-      estimate.settingProbabilities.map((probability, index) => [
-        String(index + 1),
-        roundNumber(probability, 6),
+      estimate.settingChartRows.map((row) => [
+        String(row.setting),
+        roundNumber(row.probability, 6),
       ])
     ),
   };

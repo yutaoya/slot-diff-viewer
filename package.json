@@ -2,6 +2,7 @@
   "name": "slot-diff-viewer",
   "version": "0.1.0",
   "private": true,
+  "homepage": "/agtmagtm",
   "dependencies": {
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
@@ -34,6 +35,7 @@
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
+    "postbuild": "node scripts/prepare-hosting-build.js",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
   },
