@@ -21,6 +21,10 @@ type Props = {
   dateOptions: FloorMapDateOption[];
   activeDateField: string;
   onDateFieldChange: (field: string) => void;
+  onLoadMore: () => void;
+  loadingMore: boolean;
+  canLoadMore: boolean;
+  loadMoreError: string | null;
   scale: number;
   onScaleChange: (scale: number) => void;
   onOpenMachineData: (machineNumber: string) => void;
@@ -32,6 +36,10 @@ export const FloorMapView: React.FC<Props> = ({
   dateOptions,
   activeDateField,
   onDateFieldChange,
+  onLoadMore,
+  loadingMore,
+  canLoadMore,
+  loadMoreError,
   scale,
   onScaleChange,
   onOpenMachineData,
@@ -463,8 +471,36 @@ export const FloorMapView: React.FC<Props> = ({
               </button>
             );
           })}
+          {canLoadMore ? (
+            <button
+              type="button"
+              onClick={onLoadMore}
+              disabled={loadingMore}
+              aria-busy={loadingMore}
+              style={{
+                flexShrink: 0,
+                minWidth: 112,
+                height: 30,
+                padding: '0 12px',
+                border: '1px solid #c9d4e2',
+                background: loadingMore ? '#f3f4f6' : '#eef5ff',
+                color: loadingMore ? '#666' : '#1565c0',
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: loadingMore ? 'wait' : 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {loadingMore ? '読み込み中...' : loadMoreError ? '再試行' : 'さらに読み込む'}
+            </button>
+          ) : null}
         </div>
       </div>
+      {canLoadMore && loadMoreError ? (
+        <div role="alert" style={{ padding: '4px 8px', color: '#b42318', fontSize: 12, flexShrink: 0 }}>
+          {loadMoreError}
+        </div>
+      ) : null}
       <div
         ref={scrollRef}
         style={{

@@ -16,6 +16,8 @@ type Props = {
   onCancel: () => void;
   onOk: () => void | Promise<void>;
   okLoading?: boolean;
+  saveError?: string | null;
+  closeOnMask?: boolean;
   onFlagChange: (flag: number) => void;
   onCommentChange: (comment: string) => void;
   onOpenMachineData: () => void;
@@ -68,6 +70,8 @@ export const FlagSettingModal: FC<Props> = ({
   onCancel,
   onOk,
   okLoading = false,
+  saveError = null,
+  closeOnMask = true,
   onFlagChange,
   onCommentChange,
   onOpenMachineData,
@@ -159,7 +163,7 @@ export const FlagSettingModal: FC<Props> = ({
     <Modal
       open={open}
       onCancel={onCancel}
-      maskClosable={maskClosable}
+      maskClosable={closeOnMask && maskClosable}
       footer={null}
       title="フラグ設定"
       style={{ top: 12 }}
@@ -223,6 +227,7 @@ export const FlagSettingModal: FC<Props> = ({
           />
         </div>
 
+        {saveError ? <p role="alert" style={{ color: '#b42318', margin: '8px 0' }}>{saveError}</p> : null}
         <div style={{ marginTop: 12, marginBottom: 10, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <Button onClick={onCancel}>キャンセル</Button>
           <Button type="primary" loading={okLoading} onClick={() => void onOk()}>

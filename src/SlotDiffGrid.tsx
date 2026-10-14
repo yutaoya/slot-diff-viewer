@@ -7,6 +7,12 @@ import {
   RowStyleModule,
   CellStyleModule,
   ClientSideRowModelModule,
+  ClientSideRowModelApiModule,
+  ColumnApiModule,
+  RowApiModule,
+  RenderApiModule,
+  ScrollApiModule,
+  TooltipModule,
 } from 'ag-grid-community';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
@@ -40,7 +46,6 @@ import {
   buildNumberColumns,
   buildTailColumnsForDates,
   getPastDates,
-  mergeRowData,
   parseGroupedMetricCell,
   pickEffectiveLatestDate,
   sortByLatestMissing,
@@ -75,12 +80,16 @@ import { JugglerSettingEstimatePanel } from './features/slotDiffGrid/components/
 import { MachineDataModal } from './features/slotDiffGrid/components/MachineDataModal';
 import { FloorMapView, type FloorMapDateOption, type FloorMapMachineData } from './features/slotDiffGrid/components/FloorMapView';
 import { ACCESS_ROOT_PATH } from './appAccessPath';
+import { getOlderDateKeys } from './features/slotDiffGrid/datePagination';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
 
 // AG Grid モジュール登録
-ModuleRegistry.registerModules([ClientSideRowModelModule, RowStyleModule, CellStyleModule]);
+ModuleRegistry.registerModules([
+  ClientSideRowModelModule, ClientSideRowModelApiModule, ColumnApiModule,
+  RowApiModule, RenderApiModule, ScrollApiModule, TooltipModule, RowStyleModule, CellStyleModule,
+]);
 
 const JugglerHeatmapIcon: React.FC<{ active: boolean }> = ({ active }) => {
   return (
@@ -393,9 +402,22 @@ type HistoryDebugEvent = {
   meta?: Record<string, unknown>;
 };
 
+const LoadMoreDatesButton: React.FC<{ loading: boolean; retry: boolean; onLoad: () => void }> = ({ loading, retry, onLoad }) => (
+  <button
+    type="button"
+    disabled={loading}
+    onClick={(event) => { event.stopPropagation(); onLoad(); }}
+    style={{ width: '100%', height: '100%', border: 0, padding: '0 4px', fontSize: 12,
+      color: loading ? '#667085' : '#1565c0', background: '#f3f8ff', cursor: loading ? 'wait' : 'pointer' }}
+  >
+    {loading ? '読み込み中…' : retry ? '再試行' : 'さらに読み込む'}
+  </button>
+);
+
 const HISTORY_DEBUG_EVENT_LIMIT = 80;
 type CalendarGridBuildOptions = {
   searchMode?: boolean;
+  preserveFloorMapDate?: boolean;
 };
 
 function pickRawDataByDateKeys(source: Record<string, any>, dateKeys: string[]): Record<string, any> {
@@ -435,20 +457,21 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const numberColDefsRef = useRef<ColDef[]>([]);
   const numberRowDataRef = useRef<any[]>([]);
 
-  // 表示中データの鏡
-  const rowDataMirrorRef = useRef<any[]>([]);
-
   const [loadedDates, setLoadedDates] = useState<Set<string>>(new Set());
+  const loadedDatesRef = useRef<Set<string>>(new Set());
   const loadingRef = useRef(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [calendarModalOpen, setCalendarModalOpen] = useState(false);
   const [calendarPickerOpen, setCalendarPickerOpen] = useState(false);
   const [calendarDate, setCalendarDate] = useState<Dayjs | null>(null);
   const [calendarSearchDateKey, setCalendarSearchDateKey] = useState('');
+  const calendarSearchDateKeyRef = useRef('');
   const [calendarLoading, setCalendarLoading] = useState(false);
   const calendarNormalLoadedDatesRef = useRef<string[] | null>(null);
-  const scrollReady = useRef(false);
   const didInitRef = useRef(false);
+  const rebuildGridRef = useRef<(dates: string[], options?: CalendarGridBuildOptions) => void>(() => {});
 
   const [viewMode, setViewMode] = useState<ViewMode>('number');
   const viewModeRef = useRef<ViewMode>('number');
@@ -471,6 +494,9 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const [selectedRowId, setSelectedRowId] = useState<string | number | null>(null);
   const [flagModalModeOverride, setFlagModalModeOverride] = useState<ViewMode | null>(null);
   const [flagModalSaving, setFlagModalSaving] = useState(false);
+  const flagModalSavingRef = useRef(false);
+  const flagModalSessionRef = useRef(0);
+  const [flagModalSaveError, setFlagModalSaveError] = useState<string | null>(null);
   const [flagModalDetailSnapshot, setFlagModalDetailSnapshot] = useState<TodaySnapshotItem | null>(null);
   const [flagModalDetailDateKey, setFlagModalDetailDateKey] = useState('');
   const [flagModalDetailHistoryRows, setFlagModalDetailHistoryRows] = useState<TodayOatariHistoryRow[]>([]);
@@ -511,6 +537,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
 
   // 読み込み済みの「生データ（date => map）」を保持（機種別集計に使用）
   const rawMapRef = useRef<Record<string, any>>({});
+  const [rawDataVersion, setRawDataVersion] = useState(0);
   const tooltipColorMapRef = useRef<Record<string, string>>({});
   const tooltipTextMapRef = useRef<Record<string, string>>({});
   const [tooltipMapVersion, setTooltipMapVersion] = useState(0);
@@ -525,13 +552,11 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   const [hasTodayDiffData, setHasTodayDiffData] = useState(false);
   const [nameMapReady, setNameMapReady] = useState(false);
   const [floorMapShortNameVersion, setFloorMapShortNameVersion] = useState(0);
-  const lastHorizontalScrollLeftRef = useRef(0);
   // タブ/表示指標切替前後でソート・スクロール状態を引き継ぐためのスナップショット
   const gridUiStateByKeyRef = useRef<Record<string, GridUiStateSnapshot>>({});
   const pendingGridUiRestoreRef = useRef<GridUiStateSnapshot | null>(null);
   const flagModalEffectiveMode: ViewMode = flagModalModeOverride ?? viewMode;
 
-  const rowDataRef = useRef<any[]>([]);  // ★ 追加
   const pendingScrollRestoreRef = useRef<number | null>(null);
 
   const [isMachineModalOpen, setIsMachineModalOpen] = useState(false);
@@ -872,7 +897,6 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
           if (horizontal) {
             horizontal.scrollLeft = pending.scrollLeft;
           }
-          lastHorizontalScrollLeftRef.current = pending.scrollLeft;
         }
       });
     });
@@ -889,10 +913,6 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     didInitRef.current = true;
     loadInitialData();
   }, [nameMapReady]);
-
-  useEffect(() => {
-    rowDataMirrorRef.current = rowData;
-  }, [rowData]);
 
   useEffect(() => {
     viewModeRef.current = viewMode;
@@ -1144,10 +1164,6 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   ]);
 
   useEffect(() => {
-    rowDataRef.current = rowData;        // ★ 常に最新の rowData を保持
-  }, [rowData]);
-
-  useEffect(() => {
     if (pendingScrollRestoreRef.current == null) return;
     const top = pendingScrollRestoreRef.current;
     pendingScrollRestoreRef.current = null;
@@ -1169,7 +1185,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     const loaded = Array.from(loadedDates).sort();
     if (loaded.length === 0) return '';
     return pickEffectiveLatestDate(rawMapRef.current, loaded) || loaded[loaded.length - 1] || '';
-  }, [loadedDates]);
+  }, [loadedDates, rawDataVersion]);
 
   const floorMapDateOptions = useMemo<FloorMapDateOption[]>(() => {
     const dateOptions = Array.from(loadedDates)
@@ -1287,7 +1303,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
       hasTargetDateDataByNumber[machineNumber] = hasData;
     });
     return next;
-  }, [floorMapActiveDateField, floorMapDateField, floorMapShortNameVersion, getSettingHeatmapColor, loadedDates, resolveFloorMapDisplayName, showJugglerHeatmap, todayDiffMap, tooltipMapVersion]);
+  }, [floorMapActiveDateField, floorMapDateField, floorMapShortNameVersion, getSettingHeatmapColor, loadedDates, rawDataVersion, resolveFloorMapDisplayName, showJugglerHeatmap, todayDiffMap, tooltipMapVersion]);
 
   const floorMapMachineOrder = useMemo(() => {
     return Object.keys(floorMapMachineDataByNumber)
@@ -1339,29 +1355,58 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
       .map((r: any) => String(r.machineNumber));
   }, [filteredRowData, viewMode]);
 
-  const loadInitialData = async () => {
-    const nowJST = dayjs().tz('Asia/Tokyo');
-    const hour = nowJST.hour();
-    // const minute = nowJST.minute();
-    const isBefore = hour < 8;
-    const offset = isBefore ? 2 : 1;
+  const loadDatePage = async (dates: string[]) => {
+    if (loadingRef.current || dates.length === 0) return;
+    loadingRef.current = true;
+    setLoadingMore(true);
+    setLoadMoreError(null);
+    try {
+      await loadDates(dates);
+    } catch (error) {
+      console.error('Failed to load date data:', error);
+      setLoadMoreError('データの読み込みに失敗しました。再試行してください。');
+    } finally {
+      loadingRef.current = false;
+      setLoadingMore(false);
+    }
+  };
 
-    const initialDates = getPastDates(30, offset);
-    await loadDates(initialDates);
-    scrollReady.current = true;
+  const loadInitialData = async () => {
+    const offset = dayjs().tz('Asia/Tokyo').hour() < 8 ? 2 : 1;
+    await loadDatePage(getPastDates(30, offset));
   };
 
   const loadMoreDates = async () => {
-    if (calendarSearchDateKey) return;
-    if (loadingRef.current) return;
-    loadingRef.current = true;
-
-    const alreadyLoaded = loadedDates.size;
-    const nextDates = getPastDates(30, alreadyLoaded);
-    await loadDates(nextDates);
-
-    loadingRef.current = false;
+    if (calendarSearchDateKeyRef.current || loadingRef.current) return;
+    if (loadedDatesRef.current.size === 0) {
+      await loadInitialData();
+      return;
+    }
+    await loadDatePage(getOlderDateKeys(loadedDatesRef.current));
   };
+  const loadMoreHandlerRef = useRef<() => void>(() => {});
+  loadMoreHandlerRef.current = () => { void loadMoreDates(); };
+  const requestOlderDates = useCallback(() => loadMoreHandlerRef.current(), []);
+  const canLoadMore = nameMapReady && !calendarSearchDateKey;
+  const displayedColumnDefs = useMemo<ColDef[]>(() => {
+    if (!canLoadMore) return columnDefs;
+    const buttonProps = { loading: loadingMore, retry: !!loadMoreError, onLoad: requestOlderDates };
+    return [...columnDefs, {
+      colId: '__load_more__',
+      lockPosition: 'right',
+      headerName: 'さらに読み込む',
+      width: 132,
+      sortable: false,
+      resizable: false,
+      suppressMovable: true,
+      suppressNavigable: true,
+      headerComponent: LoadMoreDatesButton,
+      headerComponentParams: buttonProps,
+      cellRenderer: LoadMoreDatesButton,
+      cellRendererParams: { ...buttonProps, suppressMouseEventHandling: () => true },
+      cellStyle: { padding: 0, backgroundColor: '#f3f8ff' },
+    }];
+  }, [canLoadMore, columnDefs, loadMoreError, loadingMore, requestOlderDates]);
 
   const showModal = useCallback((value: any, row: any, field: string) => {
     pushHistoryDebugEvent('modal open requested', {
@@ -1410,6 +1455,8 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
       const hasCellData = !(value === undefined || value === null || value === '-');
       if (!hasCellData) return;
     }
+    flagModalSessionRef.current += 1;
+    setFlagModalSaveError(null);
     setSelectedCell({ value, rowData: row, field });
     setSelectedFlag(null);
     setselectedCellUrl(null);
@@ -1432,6 +1479,8 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
       return;
     }
     flagModalMachineOrderOverrideRef.current = order;
+    flagModalSessionRef.current += 1;
+    setFlagModalSaveError(null);
     setSelectedCell({ value, rowData: row, field: floorMapActiveDateField });
     setSelectedFlag(null);
     setselectedCellUrl(row?.urls?.[floorMapActiveDateField] ?? null);
@@ -1926,114 +1975,31 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     setMachineTooltip({ text, x, y });
   }, [getTooltipText]);
 
-// 置き換え：loadDates 全体の中の該当部分
-// 置き換え：loadDates 内の該当箇所
-const loadDates = async (dates: string[]) => {
-  const api = gridRef.current?.api as any;
-  const prevScrollTop =
-    api?.getVerticalPixelRange?.()?.top ??
-    (document.querySelector('.ag-body-viewport') as HTMLElement | null)?.scrollTop ??
-    0;
-  const fetchedRaw = await fetchSlotDiffs(storeId, dates);
-  const raw: Record<string, any> = {};
-  Object.entries(fetchedRaw ?? {}).forEach(([dateKey, dateData]) => {
-    raw[dateKey] = normalizeDateDataNames(dateData);
-  });
+  const loadDates = async (dates: string[]) => {
+    const datesBeforeRequest = Array.from(loadedDatesRef.current);
+    const fetchedRaw = await fetchSlotDiffs(storeId, dates);
+    Object.entries(fetchedRaw ?? {}).forEach(([dateKey, dateData]) => {
+      rawMapRef.current[dateKey] = normalizeDateDataNames(dateData);
+    });
+    setRawDataVersion((version) => version + 1);
 
-  // 生データを累積（機種別で使う）
-  Object.entries(raw).forEach(([k, v]) => {
-    rawMapRef.current[k] = v;
-  });
-
-  const displayRaw = buildDisplayDataMap(raw, displayMetric);
-
-  // 台番別（最新日付の配列を基軸に transform）
-  const latestKey = dates[dates.length - 1];
-  const latest = displayRaw[latestKey] || Object.values(displayRaw)[0] || [];
-
-  let numberRows = transformToGridData(latest, displayRaw);
-  numberRows = applyNumberTotalLabelByMetric(numberRows);
-
-  // ★ 読み込み済み + 追加日付から「実効的な最新日付」を決定
-  const allLoaded = new Set<string>([...Array.from(loadedDates), ...dates]);
-  const allLoadedArr = [...allLoaded];
-  const allDisplayData = buildDisplayDataMap(rawMapRef.current, displayMetric);
-  const effectiveLatestDate = pickEffectiveLatestDate(allDisplayData, allLoadedArr);
-
-  // 台番別の“元データ”を更新（next の順序を尊重）
-  numberRowDataRef.current = mergeRowData(numberRowDataRef.current, numberRows);
-  numberRowDataRef.current = applyTodayDiffToRows(
-    numberRowDataRef.current,
-    todayDiffMap,
-    todaySnapshotDateKey
-  );
-  numberRowDataRef.current = applyJugglerSettingHeatmapScoresToNumberRows(
-    numberRowDataRef.current,
-    buildJugglerSettingHeatmapScoreMapsByDate(rawMapRef.current)
-  );
-
-  // ★ 実効的な最新日付が見つかった場合のみ「欠損を下へ」並べ替え
-  if (effectiveLatestDate) {
-    numberRowDataRef.current = sortByLatestMissing(numberRowDataRef.current, effectiveLatestDate);
-  } else {
-    // 見つからない＝全日付でデータなし → 単純に台番昇順など
-    numberRowDataRef.current = sortByMachineNumber(numberRowDataRef.current);
-  }
-
-  // 列を生成：実効的な最新日付を渡す（固定列のグレー化にも使う）
-  const newCols = buildNumberColumns(
-    dates,
-    numberColDefsRef.current,
-    showModal,
-    effectiveLatestDate || '',
-    todayColumnHeader,
-    hasTodayDiffData,
-    resolveDisplayName,
-    getTooltipColor,
-    getTooltipText,
-    getSettingHeatmapColor,
-    () => showJugglerHeatmapRef.current
-  );
-
-  numberColDefsRef.current = [...numberColDefsRef.current, ...newCols];
-  setLoadedDates(prev => new Set([...Array.from(prev), ...dates]));
-
-  if (viewMode === 'number') {
-    setRowData(numberRowDataRef.current);
-    setColumnDefs(numberColDefsRef.current);
-  } else if (viewMode === 'model') {
-    buildAndSetGrouped(allLoadedArr, allDisplayData);
-  } else if (viewMode === 'tail') {
-    buildAndSetTail(allLoadedArr, allDisplayData);
-  }
-
-  pendingScrollRestoreRef.current = prevScrollTop;
-};
-
-
-
-  const onBodyScroll = async (event: any) => {
-    if (!scrollReady.current) return;
-    if (event.direction !== 'horizontal') return;
-    setMachineTooltip(null);
-
-    const container = document.querySelector('.ag-body-horizontal-scroll-viewport');
-    if (!container) return;
-
-    const scrollLeft = container.scrollLeft;
-    const clientWidth = container.clientWidth;
-    const scrollWidth = container.scrollWidth;
-    const hasHorizontalOverflow = scrollWidth > clientWidth + 1;
-    const movingRight = scrollLeft > lastHorizontalScrollLeftRef.current;
-    lastHorizontalScrollLeftRef.current = scrollLeft;
-
-    // Ignore synthetic/layout-driven horizontal events.
-    if (!hasHorizontalOverflow) return;
-    if (!movingRight) return;
-
-    if (scrollLeft + clientWidth >= scrollWidth - 10) {
-      await loadMoreDates();
+    // Resolve the active view after the request, not from the render that started it.
+    const searchDate = calendarSearchDateKeyRef.current;
+    const normalDates = searchDate
+      ? calendarNormalLoadedDatesRef.current ?? datesBeforeRequest
+      : Array.from(loadedDatesRef.current);
+    const nextDates = Array.from(new Set([...normalDates, ...dates]));
+    pendingScrollRestoreRef.current = getCurrentVerticalScrollTop();
+    if (searchDate) {
+      calendarNormalLoadedDatesRef.current = nextDates;
+      rebuildGridRef.current([searchDate], { searchMode: true, preserveFloorMapDate: true });
+    } else {
+      rebuildGridRef.current(nextDates, { preserveFloorMapDate: true });
     }
+  };
+
+  const onBodyScroll = () => {
+    setMachineTooltip(null);
   };
 
   const CustomCellRenderer = (props: any) => {
@@ -2307,8 +2273,9 @@ const loadDates = async (dates: string[]) => {
       () => showJugglerHeatmapRef.current
     );
 
-    setLoadedDates(new Set(normalizedDateKeys));
-    setSelectedFloorMapDateField('');
+    loadedDatesRef.current = new Set(normalizedDateKeys);
+    setLoadedDates(loadedDatesRef.current);
+    if (!options?.preserveFloorMapDate) setSelectedFloorMapDateField('');
 
     if (viewModeRef.current === 'number') {
       setRowData(numberRowDataRef.current);
@@ -2326,6 +2293,8 @@ const loadDates = async (dates: string[]) => {
       buildAndSetTail(normalizedDateKeys, allDataForDisplay, { hideToday: isCalendarSearch });
     }
   };
+  rebuildGridRef.current = rebuildGridForLoadedDates;
+
   const hasCalendarSearchData = (dateData: any): boolean => {
     if (!dateData) return false;
     if (Array.isArray(dateData)) return dateData.length > 0;
@@ -2341,10 +2310,6 @@ const loadDates = async (dates: string[]) => {
 
   const handleCalendarDateSelect = async (dateKey: string) => {
     if (!/^\d{8}$/.test(dateKey) || calendarLoading) return;
-    if (!calendarNormalLoadedDatesRef.current) {
-      calendarNormalLoadedDatesRef.current = Array.from(loadedDates).sort((a, b) => b.localeCompare(a));
-    }
-
     setCalendarLoading(true);
     try {
       const fetchedRaw = await fetchSlotDiffs(storeId, [dateKey]);
@@ -2361,9 +2326,14 @@ const loadDates = async (dates: string[]) => {
       Object.entries(normalizedRaw).forEach(([fetchedDateKey, dateData]) => {
         rawMapRef.current[fetchedDateKey] = dateData;
       });
+      if (!calendarSearchDateKeyRef.current) {
+        calendarNormalLoadedDatesRef.current = Array.from(loadedDatesRef.current);
+      }
+      calendarSearchDateKeyRef.current = dateKey;
       setCalendarSearchDateKey(dateKey);
+      setRawDataVersion((version) => version + 1);
       setCalendarDate(dateKeyToDayjs(dateKey));
-      rebuildGridForLoadedDates([dateKey], { searchMode: true });
+      rebuildGridRef.current([dateKey], { searchMode: true });
       setCalendarPickerOpen(false);
       setCalendarModalOpen(false);
     } catch (error) {
@@ -2378,6 +2348,7 @@ const loadDates = async (dates: string[]) => {
     const hadSearch = !!calendarSearchDateKey;
     const normalDates = calendarNormalLoadedDatesRef.current;
     calendarNormalLoadedDatesRef.current = null;
+    calendarSearchDateKeyRef.current = '';
     setCalendarSearchDateKey('');
     setCalendarDate(null);
     setCalendarPickerOpen(false);
@@ -2391,65 +2362,12 @@ const loadDates = async (dates: string[]) => {
     }
   };
   useEffect(() => {
-    const loadedArr = Array.from(loadedDates);
-    if (loadedArr.length === 0) return;
-    if (calendarSearchDateKey) {
-      rebuildGridForLoadedDates([calendarSearchDateKey], { searchMode: true });
-      return;
-    }
-
+    const searchDate = calendarSearchDateKeyRef.current;
+    const dates = searchDate ? [searchDate] : Array.from(loadedDatesRef.current);
+    if (dates.length === 0) return;
     pendingScrollRestoreRef.current = getCurrentVerticalScrollTop();
-
-    const allDataForDisplay = buildDisplayDataMap(rawMapRef.current, displayMetric);
-    const loadedDesc = [...loadedArr].sort((a, b) => b.localeCompare(a));
-    const latestKey = loadedDesc[0];
-    const latest = (latestKey && allDataForDisplay[latestKey]) ? allDataForDisplay[latestKey] : Object.values(allDataForDisplay)[0] ?? {};
-
-    let numberRows = transformToGridData(latest, allDataForDisplay);
-    numberRows = applyNumberTotalLabelByMetric(numberRows);
-    numberRows = applyTodayDiffToRows(
-      numberRows,
-      todayDiffMap,
-      todaySnapshotDateKey
-    );
-    numberRows = applyJugglerSettingHeatmapScoresToNumberRows(
-      numberRows,
-      buildJugglerSettingHeatmapScoreMapsByDate(rawMapRef.current)
-    );
-    const effectiveLatestDate = pickEffectiveLatestDate(allDataForDisplay, loadedArr);
-    if (effectiveLatestDate) {
-      numberRows = sortByLatestMissing(numberRows, effectiveLatestDate);
-    } else {
-      numberRows = sortByMachineNumber(numberRows);
-    }
-    numberRowDataRef.current = numberRows;
-
-    numberColDefsRef.current = buildNumberColumns(
-      loadedDesc,
-      [],
-      showModal,
-      effectiveLatestDate || '',
-      todayColumnHeader,
-      hasTodayDiffData,
-      resolveDisplayName,
-      getTooltipColor,
-      getTooltipText,
-      getSettingHeatmapColor,
-      () => showJugglerHeatmapRef.current
-    );
-
-    if (viewModeRef.current === 'number') {
-      setRowData(numberRowDataRef.current);
-      setColumnDefs(numberColDefsRef.current);
-      return;
-    }
-    if (viewModeRef.current === 'model') {
-      buildAndSetGrouped(loadedArr, allDataForDisplay);
-      return;
-    }
-    buildAndSetTail(loadedArr, allDataForDisplay);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [displayMetric]);
+    rebuildGridRef.current(dates, { searchMode: !!searchDate, preserveFloorMapDate: true });
+  }, [displayMetric, getCurrentVerticalScrollTop]);
 
   // ========= タブ切替 =========
   const handleTabChange = (_: React.SyntheticEvent, newValue: number) => {
@@ -2576,6 +2494,8 @@ const loadDates = async (dates: string[]) => {
       preloadedCount: detail?.historyCount ?? null,
     });
     setFlagModalModeOverride('number');
+    flagModalSessionRef.current += 1;
+    setFlagModalSaveError(null);
     setSelectedCell({ value: row?.[dateField], rowData: row, field: dateField });
     setSelectedFlag(null);
     setselectedCellUrl(row?.urls?.[dateField] ?? null);
@@ -2668,6 +2588,8 @@ const loadDates = async (dates: string[]) => {
 
   // フラグ編集モーダルを閉じる。
   const handleCloseFlagModal = useCallback(() => {
+    flagModalSessionRef.current += 1;
+    setFlagModalSaveError(null);
     // 機種別 -> 台番別へ遷移していた場合は、閉じる時に機種別へ戻す。
     if (flagModalReturnContext && flagModalEffectiveMode === 'number') {
       flagModalDetailReqRef.current += 1;
@@ -2713,194 +2635,76 @@ const loadDates = async (dates: string[]) => {
 
   // フラグ編集モーダルのOK処理（Firestore更新 + ローカル状態反映）。
   const handleFlagModalOk = useCallback(async () => {
-    if (!selectedCell || selectedFlag === null || flagModalSaving) return;
+    if (!selectedCell || selectedFlag === null || flagModalSavingRef.current) return;
+    const session = flagModalSessionRef.current;
+    flagModalSavingRef.current = true;
     setFlagModalSaving(true);
+    setFlagModalSaveError(null);
     try {
-      const scrollTopBeforeUpdate = getCurrentVerticalScrollTop();
-
       const dateField = selectedCell.field;
       const loadResult = await fetchSlotDiffDateData(storeId, dateField);
-      if (!loadResult.exists) return;
-
+      if (!loadResult.exists) throw new Error('保存対象の日付データが見つかりません。');
       const data = loadResult.data;
-      const targetName = String(selectedCell.rowData.name ?? selectedCell.rowData.modelName ?? '');
-      const targetCanonicalName = resolveDisplayName(targetName);
+      const targetCanonicalName = resolveDisplayName(String(selectedCell.rowData.name ?? selectedCell.rowData.modelName ?? ''));
       const targetNumber = String(selectedCell.rowData.machineNumber ?? '');
-
-      const originalFlag = selectedCell?.rowData?.flag?.[dateField] ?? 0;
+      const matchesName = (item: any) => resolveDisplayName(String(item?.name ?? '')) === targetCanonicalName;
+      const currentItem: any = Object.values(data).find((item: any) => matchesName(item) && String(item?.machineNumber ?? '') === targetNumber);
+      // Use the server value when deciding whether to clear the whole model.
+      const originalFlag = currentItem?.flag ?? selectedCell.rowData?.flag?.[dateField] ?? 0;
+      const isModel = flagModalEffectiveMode === 'model';
+      const updateWholeModel = isModel || selectedFlag === 9 || (originalFlag === 9 && selectedFlag === 0);
+      const shouldUpdateFlag = !isModel || [9, 0].includes(selectedFlag);
+      const targetKeys = Object.entries(data)
+        .filter(([, item]: [string, any]) => matchesName(item) && (updateWholeModel || String(item?.machineNumber ?? '') === targetNumber))
+        .map(([key]) => key);
+      if (targetKeys.length === 0) throw new Error('保存対象の台データが見つかりません。');
       const commentValue = selectedComment ?? '';
+      if (isModel) {
+        await updateModelModeFlagsAndComment({ storeId, dateField, targetKeys, selectedFlag, commentValue, shouldUpdateFlag });
+      } else {
+        await updateNumberModeFlagsAndComment({ storeId, dateField, targetKeys, selectedFlag, commentValue });
+      }
 
-      // 台番別と機種別で分岐
-      if (flagModalEffectiveMode === 'model') {
-        // 機種別ではコメントは常に一括反映、flag は 9/0 選択時のみ反映する。
-        const shouldUpdateFlag = [9, 0].includes(selectedFlag);
-        const targetKeys: string[] = [];
-        Object.entries(data).forEach(([key, val]: [string, any]) => {
-          const canonical = resolveDisplayName(String(val?.name ?? ''));
-          if (canonical === targetCanonicalName) targetKeys.push(key);
-        });
+      // Synchronize the source shared by grid rows and floor-map colors.
+      // Loaded dates contain arrays, but Firestore uses keyed objects, so match machine identities.
+      const savedMachines = new Set(targetKeys.map((key) => String(data[key]?.machineNumber ?? '')));
+      const patchItem = (item: any) => {
+        if (!matchesName(item) || !savedMachines.has(String(item?.machineNumber ?? ''))) return item;
+        return { ...item, ...(shouldUpdateFlag ? { flag: selectedFlag } : {}), comment: commentValue };
+      };
+      const cachedDate = rawMapRef.current[dateField] ?? {};
+      const updatedDate = Array.isArray(cachedDate)
+        ? cachedDate.map(patchItem)
+        : Object.fromEntries(Object.entries(cachedDate).map(([key, item]) => [key, patchItem(item)]));
+      rawMapRef.current = { ...rawMapRef.current, [dateField]: updatedDate };
+      setRawDataVersion((version) => version + 1);
+      const searchDate = calendarSearchDateKeyRef.current;
+      pendingScrollRestoreRef.current = getCurrentVerticalScrollTop();
+      rebuildGridRef.current(searchDate ? [searchDate] : Array.from(loadedDatesRef.current), {
+        searchMode: !!searchDate,
+        preserveFloorMapDate: true,
+      });
+      gridRef.current?.api?.refreshCells({ force: true });
 
-        if (targetKeys.length === 0) {
-          setModalOpen(false);
-          return;
-        }
-
-        await updateModelModeFlagsAndComment({
-          storeId,
-          dateField,
-          targetKeys,
-          selectedFlag,
-          commentValue,
-          shouldUpdateFlag,
-        });
-
-        // ローカル反映（台番別の元データ／現在表示データ／機種別行）
-        numberRowDataRef.current.forEach((row: any) => {
-          const canonical = resolveDisplayName(String(row?.name ?? row?.modelName ?? ''));
-          if (canonical !== targetCanonicalName) return;
-          if (!row.comments) row.comments = {};
-          if (shouldUpdateFlag) {
-            if (!row.flag) row.flag = {};
-            row.flag[dateField] = selectedFlag;
-          }
-          row.comments[dateField] = commentValue;
-        });
-        rowDataRef.current.forEach((row: any) => {
-          const canonical = resolveDisplayName(String(row?.name ?? row?.modelName ?? ''));
-          if (canonical !== targetCanonicalName) return;
-          if (!row.comments) row.comments = {};
-          if (shouldUpdateFlag) {
-            if (!row.flag) row.flag = {};
-            row.flag[dateField] = selectedFlag;
-          }
-          row.comments[dateField] = commentValue;
-        });
-        pendingScrollRestoreRef.current = scrollTopBeforeUpdate;
-        setRowData((prev) =>
-          prev.map((r: any) => {
-            const nm = resolveDisplayName(String(r?.name ?? r?.modelName ?? ''));
-            if (nm !== targetCanonicalName) return r;
-            const next = { ...r, comments: { ...(r.comments ?? {}) } } as any;
-            if (shouldUpdateFlag) {
-              next.flag = { ...(r.flag ?? {}) };
-              next.flag[dateField] = selectedFlag;
-            }
-            next.comments[dateField] = commentValue;
-            return next;
-          })
-        );
-
+      // An old save must not close or clear a modal opened while it was in flight.
+      if (session === flagModalSessionRef.current) {
+        flagModalSessionRef.current += 1;
         setModalOpen(false);
+        setFlagModalModeOverride(null);
         setFlagModalReturnContext(null);
         flagModalMachineOrderOverrideRef.current = [];
         setSelectedComment('');
-        gridRef.current?.api?.refreshCells({ force: true });
-        return;
       }
-
-      // ここから先は従来の台番別ロジック。
-      const targetKeys: string[] = [];
-      if (originalFlag === 9 && selectedFlag === 0) {
-        Object.entries(data).forEach(([key, val]: [string, any]) => {
-          const canonical = resolveDisplayName(String(val?.name ?? ''));
-          if (canonical === targetCanonicalName) targetKeys.push(key);
-        });
-      } else if (selectedFlag === 9) {
-        Object.entries(data).forEach(([key, val]: [string, any]) => {
-          const canonical = resolveDisplayName(String(val?.name ?? ''));
-          if (canonical === targetCanonicalName) targetKeys.push(key);
-        });
-      } else {
-        Object.entries(data).forEach(([key, val]: [string, any]) => {
-          const canonical = resolveDisplayName(String(val?.name ?? ''));
-          if (canonical === targetCanonicalName && String(val?.machineNumber ?? '') === targetNumber) {
-            targetKeys.push(key);
-          }
-        });
+    } catch (error) {
+      console.error('Failed to save flags and comment:', error);
+      if (session === flagModalSessionRef.current) {
+        setFlagModalSaveError('保存に失敗しました。もう一度お試しください。');
       }
-
-      await updateNumberModeFlagsAndComment({
-        storeId,
-        dateField,
-        targetKeys,
-        selectedFlag,
-        commentValue,
-      });
-
-      setModalOpen(false);
-      setFlagModalReturnContext(null);
-      flagModalMachineOrderOverrideRef.current = [];
-      setSelectedComment('');
-
-      const api = gridRef.current?.api;
-      if (!api) return;
-      const field = dateField;
-      pendingScrollRestoreRef.current = scrollTopBeforeUpdate;
-
-      rowDataRef.current.forEach((row: any) => {
-        if (!row.flag) row.flag = {};
-        if (!row.comments) row.comments = {};
-        const canonical = resolveDisplayName(String(row?.name ?? row?.modelName ?? ''));
-        const rowNumber = String(row?.machineNumber ?? '');
-        if (originalFlag === 9 && selectedFlag === 0 && canonical === targetCanonicalName) {
-          row.flag[field] = 0;
-          row.comments[field] = commentValue;
-        } else if (selectedFlag === 9 && canonical === targetCanonicalName) {
-          row.flag[field] = 9;
-          row.comments[field] = commentValue;
-        } else if (canonical === targetCanonicalName && rowNumber === targetNumber) {
-          row.flag[field] = selectedFlag;
-          row.comments[field] = commentValue;
-        }
-      });
-
-      numberRowDataRef.current.forEach((row: any) => {
-        if (!row.flag) row.flag = {};
-        if (!row.comments) row.comments = {};
-        const canonical = resolveDisplayName(String(row?.name ?? row?.modelName ?? ''));
-        const rowNumber = String(row?.machineNumber ?? '');
-        if (originalFlag === 9 && selectedFlag === 0 && canonical === targetCanonicalName) {
-          row.flag[field] = 0;
-          row.comments[field] = commentValue;
-        } else if (selectedFlag === 9 && canonical === targetCanonicalName) {
-          row.flag[field] = 9;
-          row.comments[field] = commentValue;
-        } else if (canonical === targetCanonicalName && rowNumber === targetNumber) {
-          row.flag[field] = selectedFlag;
-          row.comments[field] = commentValue;
-        }
-      });
-
-      setRowData((prev) =>
-        prev.map((row: any) => {
-          const canonical = resolveDisplayName(String(row?.name ?? row?.modelName ?? ''));
-          const rowNumber = String(row?.machineNumber ?? '');
-          const shouldUpdate =
-            (originalFlag === 9 && selectedFlag === 0 && canonical === targetCanonicalName) ||
-            (selectedFlag === 9 && canonical === targetCanonicalName) ||
-            (canonical === targetCanonicalName && rowNumber === targetNumber);
-          if (!shouldUpdate) return row;
-          const next = { ...row, flag: { ...(row.flag ?? {}) }, comments: { ...(row.comments ?? {}) } };
-          next.flag[field] = selectedFlag;
-          next.comments[field] = commentValue;
-          return next;
-        })
-      );
-
-      api.refreshCells({ force: true });
     } finally {
+      flagModalSavingRef.current = false;
       setFlagModalSaving(false);
     }
-  }, [
-    flagModalSaving,
-    getCurrentVerticalScrollTop,
-    resolveDisplayName,
-    selectedCell,
-    selectedComment,
-    selectedFlag,
-    storeId,
-    flagModalEffectiveMode,
-  ]);
+  }, [getCurrentVerticalScrollTop, resolveDisplayName, selectedCell, selectedComment, selectedFlag, storeId, flagModalEffectiveMode]);
 
   return (
     <>
@@ -2947,6 +2751,11 @@ const loadDates = async (dates: string[]) => {
         </Tabs>
       </Box>
 
+      {loadMoreError && canLoadMore && viewMode !== 'floor' ? (
+        <div role="alert" style={{ padding: '4px 8px', color: '#b42318', fontSize: 12 }}>
+          {loadMoreError}
+        </div>
+      ) : null}
       <div style={{ flex: 1, minHeight: 0, width: '100%' }}>
         {viewMode === 'floor' ? (
           <FloorMapView
@@ -2958,14 +2767,19 @@ const loadDates = async (dates: string[]) => {
             scale={floorMapScale}
             onScaleChange={setFloorMapScale}
             onOpenMachineData={handleOpenFloorMapMachineDetail}
+            onLoadMore={requestOlderDates}
+            loadingMore={loadingMore}
+            canLoadMore={canLoadMore}
+            loadMoreError={loadMoreError}
           />
         ) : (
         <div className="ag-theme-alpine" style={{ height: '100%', width: '100%' }}>
           <AgGridReact
+            theme="legacy"
             key={gridRenderKey}
             ref={gridRef}
             rowData={filteredRowData}
-            columnDefs={columnDefs}
+            columnDefs={displayedColumnDefs}
             components={{
               customCellRenderer: CustomCellRenderer,
               groupedCellRenderer: GroupedCellRenderer,
@@ -2990,7 +2804,6 @@ const loadDates = async (dates: string[]) => {
             }}
             onModelUpdated={() => {
               applyPendingGridUiRestore();
-              applyCurrentRowHeight();
               if (!virtualizationPendingRef.current) return;
               virtualizationPendingRef.current = false;
               requestAnimationFrame(() => {
@@ -3362,6 +3175,7 @@ const loadDates = async (dates: string[]) => {
       <Modal
         title={todayDetailItem ? `${todayDetailItem.machineNumber ?? '-'}番台 / ${todayDetailItem.name ?? '-'}` : ''}
         open={todayDetailModalOpen}
+        maskClosable={viewMode !== 'floor'}
         onCancel={() => {
           const shouldReturnToGallery = todayDetailFromGallery;
           setTodayDetailModalOpen(false);
@@ -3746,6 +3560,8 @@ const loadDates = async (dates: string[]) => {
         onCancel={handleCloseFlagModal}
         onOk={handleFlagModalOk}
         okLoading={flagModalSaving}
+        saveError={flagModalSaveError}
+        closeOnMask={viewMode !== 'floor'}
         onFlagChange={setSelectedFlag}
         onCommentChange={setSelectedComment}
         onOpenMachineData={handleOpenMachineDataModal}
