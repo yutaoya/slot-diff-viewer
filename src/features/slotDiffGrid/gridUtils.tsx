@@ -134,6 +134,7 @@ export function buildNumberColumns(
       cellStyle: (p) => {
         const base: any = {
           fontSize: '0.6em',
+          fontWeight: 'bold',
           padding: 0,
           whiteSpace: 'normal',
           textAlign: 'center',
@@ -352,6 +353,7 @@ export function buildGroupedColumnsForDates(
       cellStyle: (p: any) => {
         const base: any = {
           fontSize: '0.6rem',
+          fontWeight: 'bold',
           padding: 0,
           whiteSpace: 'normal',
           textAlign: 'left',
