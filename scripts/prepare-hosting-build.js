@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 const accessPathSegment = 'agtmagtm';
-const buildDirectory = path.resolve(__dirname, '..', 'build');
+const buildDirectory = path.resolve(__dirname, '..', process.env.BUILD_PATH || 'build');
 const destinationDirectory = path.join(buildDirectory, accessPathSegment);
 const destinationPath = path.join(destinationDirectory, 'index.html');
 

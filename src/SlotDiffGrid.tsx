@@ -81,6 +81,7 @@ import { MachineDataModal } from './features/slotDiffGrid/components/MachineData
 import { FloorMapView, type FloorMapDateOption, type FloorMapMachineData } from './features/slotDiffGrid/components/FloorMapView';
 import { ACCESS_ROOT_PATH } from './appAccessPath';
 import { getOlderDateKeys } from './features/slotDiffGrid/datePagination';
+import { GridThemePreview, GRID_THEME_PREVIEW_ENABLED, getInitialGridTheme } from './features/slotDiffGrid/components/GridThemePreview';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -449,6 +450,7 @@ const stringifyHistoryDebugMeta = (meta?: Record<string, unknown>) => {
 };
 
 export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
+  const [gridTheme, setGridTheme] = useState(getInitialGridTheme);
   const [columnDefs, setColumnDefs] = useState<ColDef[]>([]);
   const [rowData, setRowData] = useState<any[]>([]);
   const gridRef = useRef<AgGridReact<any>>(null);
@@ -2709,6 +2711,9 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   return (
     <>
       <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      {GRID_THEME_PREVIEW_ENABLED && (
+        <GridThemePreview theme={gridTheme} onChange={setGridTheme} isMap={viewMode === 'floor'} />
+      )}
       {/* 上部タブ */}
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 1, marginBottom: 0 }}>
       <Tabs
@@ -2773,7 +2778,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
             loadMoreError={loadMoreError}
           />
         ) : (
-        <div className="ag-theme-alpine" style={{ height: '100%', width: '100%' }}>
+        <div className={`slot-diff-grid ag-theme-${gridTheme}`} style={{ height: '100%', width: '100%' }}>
           <AgGridReact
             theme="legacy"
             key={gridRenderKey}
