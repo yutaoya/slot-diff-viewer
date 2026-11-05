@@ -1,30 +1,12 @@
 const fs = require('fs');
 const path = require('path');
 
-const accessPathSegment = 'agtmagtm';
 const buildDirectory = path.resolve(__dirname, '..', process.env.BUILD_PATH || 'build');
-const destinationDirectory = path.join(buildDirectory, accessPathSegment);
-const destinationPath = path.join(destinationDirectory, 'index.html');
+const entryPoint = path.join(buildDirectory, 'index.html');
 
-if (!fs.existsSync(path.join(buildDirectory, 'index.html'))) {
-  throw new Error(`Build entry point was not found: ${path.join(buildDirectory, 'index.html')}`);
+if (!fs.existsSync(entryPoint)) {
+  throw new Error(`Build entry point was not found: ${entryPoint}`);
 }
 
-fs.mkdirSync(destinationDirectory, { recursive: true });
-
-for (const entry of fs.readdirSync(buildDirectory, { withFileTypes: true })) {
-  if (entry.name === accessPathSegment) {
-    continue;
-  }
-
-  fs.renameSync(
-    path.join(buildDirectory, entry.name),
-    path.join(destinationDirectory, entry.name)
-  );
-}
-
-if (!fs.existsSync(destinationPath)) {
-  throw new Error(`Prepared hosting entry point was not found: ${destinationPath}`);
-}
-
-console.log(`Hosting entry point: /${accessPathSegment}/index.html`);
+// CRA now emits root-relative asset URLs, so keep its output at the hosting root.
+console.log('Hosting entry point: /index.html');

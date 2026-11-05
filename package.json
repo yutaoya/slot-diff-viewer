@@ -2,7 +2,7 @@
   "name": "slot-diff-viewer",
   "version": "0.1.0",
   "private": true,
-  "homepage": "/agtmagtm",
+  "homepage": "/",
   "dependencies": {
     "@emotion/react": "^11.14.0",
     "@emotion/styled": "^11.14.1",
@@ -37,6 +37,7 @@
     "build": "react-scripts build",
     "postbuild": "node scripts/prepare-hosting-build.js",
     "test": "react-scripts test",
+    "test:rules": "node scripts/test-firestore-rules.cjs",
     "eject": "react-scripts eject"
   },
   "eslintConfig": {
@@ -58,6 +59,7 @@
     ]
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "5.0.2",
     "@types/file-saver": "^2.0.7"
   }
 }

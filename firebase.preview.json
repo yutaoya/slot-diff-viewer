@@ -9,17 +9,13 @@
     ],
     "rewrites": [
       {
-        "source": "/agtmagtm",
-        "destination": "/agtmagtm/index.html"
-      },
-      {
-        "source": "/agtmagtm/**",
-        "destination": "/agtmagtm/index.html"
+        "source": "**",
+        "destination": "/index.html"
       }
     ],
     "headers": [
       {
-        "source": "/agtmagtm/manifest.json",
+        "source": "/manifest.json",
         "headers": [
           {
             "key": "Content-Type",
@@ -30,6 +26,18 @@
             "value": "no-cache"
           }
         ]
+      }
+    ],
+    "redirects": [
+      {
+        "source": "/agtmagtm",
+        "destination": "/",
+        "type": 301
+      },
+      {
+        "source": "/agtmagtm/:path*",
+        "destination": "/:path",
+        "type": 301
       }
     ]
   }

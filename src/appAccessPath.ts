@@ -1,5 +1,6 @@
-export const ACCESS_PATH_SEGMENT = 'agtmagtm';
-export const ACCESS_ROOT_PATH = `/${ACCESS_PATH_SEGMENT}`;
+// Store pages and assets are served directly from the origin root.
+export const ACCESS_ROOT_PATH = '';
+export const LEGACY_ACCESS_ROOT_PATH = '/agtmagtm';
 export const DEFAULT_STORE_ID = 'maruhan_chuou';
 
 export function getStorePath(storeId: string): string {

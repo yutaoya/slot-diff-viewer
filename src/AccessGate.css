@@ -1,4 +1,5 @@
 .access-gate {
+  box-sizing: border-box;
   min-height: 100dvh;
   display: grid;
   place-items: center;
@@ -8,6 +9,7 @@
 }
 
 .access-gate__panel {
+  box-sizing: border-box;
   width: min(100%, 360px);
   border: 1px solid #d8dee8;
   border-radius: 8px;
@@ -80,4 +82,48 @@
   color: #b91c1c;
   font-size: 13px;
   line-height: 1.5;
+}
+
+.access-gate__secondary {
+  display: block;
+  margin: 12px auto 0;
+  padding: 8px;
+  border: 0;
+  background: transparent;
+  color: #0f5fa8;
+  cursor: pointer;
+}
+
+.access-authorized {
+  --access-session-bar-height: 40px;
+}
+
+.access-session-bar {
+  box-sizing: border-box;
+  height: var(--access-session-bar-height, 40px);
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 12px;
+  background: #f8fafc;
+  color: #4b5563;
+  font: 12px sans-serif;
+}
+
+.access-session-bar span {
+  max-width: 65vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.access-session-bar button {
+  min-height: 32px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  padding: 4px 10px;
+  background: white;
+  color: #374151;
+  cursor: pointer;
 }

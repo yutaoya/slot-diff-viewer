@@ -1,8 +1,8 @@
 import React, { Suspense } from 'react';
 import { useEffect } from 'react';
-import { Routes, Route, Navigate, useParams } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
 import { AccessGate } from './AccessGate';
-import { ACCESS_ROOT_PATH, DEFAULT_STORE_ID, getStorePath } from './appAccessPath';
+import { LEGACY_ACCESS_ROOT_PATH, DEFAULT_STORE_ID, getStorePath } from './appAccessPath';
 import './App.css';
 
 const SlotDiffGrid = React.lazy(() =>
@@ -35,6 +35,21 @@ function StorePage() {
   );
 }
 
+function StoreRedirect() {
+  const legacyPath = useParams()['*']?.replace(/^\/+/, '');
+  const location = useLocation();
+  return (
+    <Navigate
+      to={{
+        pathname: legacyPath ? `/${legacyPath}` : getStorePath(DEFAULT_STORE_ID),
+        search: location.search,
+        hash: location.hash,
+      }}
+      replace
+    />
+  );
+}
+
 function NotFoundPage() {
   useEffect(() => {
     document.title = '404 Not Found';
@@ -63,17 +78,18 @@ export default function App() {
   return (
     <Routes>
       <Route
-        path={ACCESS_ROOT_PATH}
-        element={<Navigate to={getStorePath(DEFAULT_STORE_ID)} replace />}
+        path="/"
+        element={<StoreRedirect />}
       />
       <Route
-        path={`${ACCESS_ROOT_PATH}/:storeId`}
+        path="/:storeId"
         element={
           <AccessGate>
             <StorePage />
           </AccessGate>
         }
       />
+      <Route path={`${LEGACY_ACCESS_ROOT_PATH}/*`} element={<StoreRedirect />} />
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );

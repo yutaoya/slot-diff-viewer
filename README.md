@@ -1,3 +1,62 @@
+# ゼッタイニツモレール
+
+## Google ログインと利用許可
+
+画面と Firestore データは、管理者が許可した Google アカウントで利用します。Firebase Authentication が Google の確認済みメールアドレスを検証し、Firestore の `allowedEmails/{小文字のメールアドレス}` の `enabled: true` と照合します。許可は管理者の Google Cloud IAM 権限で登録し、利用者は許可リストを書き換えられません。初回ログイン前のメールアドレスも登録できます。Firebase Auth ユーザーを事前作成する必要はありません。
+
+ログインセッションは `authSessions/{uid}/sessions/{auth_time}` に保存します。最終操作から 7 日以上経過すると、そのセッションでのデータ取得・更新・期限延長をサーバー側で拒否し、再ログインを求めます。自動 ID トークン更新やバックグラウンドタイマーでは有効期間を延長しません。セッション作成は認証から 5 分以内、活動時刻はサーバー時刻だけを許可します。異なる端末のログインはそれぞれのセッションとして扱います。
+
+### 利用者の追加・取り消し
+
+Node.js 20 以降、Firebase CLI、対象プロジェクトの管理者としての `firebase login` が必要です。管理スクリプトは CLI のログインを再利用し、アクセストークンや OAuth クライアントシークレットを表示しません。CLI を標準外の場所にインストールした場合は `FIREBASE_TOOLS_PATH` に `firebase-tools` パッケージのディレクトリを指定してください。
+
+```sh
+# 設定と指定アカウントの許可状態を確認
+node scripts/manage-access.cjs status --email person@example.com
+
+# 変更内容を確認（この時点では書き込まない）
+node scripts/manage-access.cjs allow-email --email person@example.com
+
+# 利用許可を登録
+node scripts/manage-access.cjs allow-email --email person@example.com --apply
+
+# 利用許可を取り消す（Auth アカウントは削除しない）
+node scripts/manage-access.cjs revoke-email --email person@example.com --apply
+```
+
+プロジェクトは `.firebaserc` の default を使用します。別プロジェクトには `--project project-id` を指定します。取り消し後は次の Firestore アクセスから拒否され、開いている画面も許可ドキュメントの監視でログアウトします。変更しても他のアプリの Firebase Auth アカウントや認証方式は削除しません。
+
+### 初回設定とデプロイ
+
+1. Firebase Console の Authentication → Sign-in method で Google を有効にし、公開名とサポートメールを設定します。Google OAuth のクライアントシークレットはソースコードに入れません。
+2. 上の管理スクリプトで、利用者の Google メールアドレスを登録します。
+3. 下記テストと `npm run build` を実行します。
+4. `firebase deploy --only firestore:rules,hosting --project pachislot-analyze` でルールと画面を配信します。
+
+ルート URL から利用できます。旧 `/agtmagtm/...` は新しいルートのパスへリダイレクトします。認可ルールは `firestore.rules`、Hosting とルールの参照は `firebase.json` で管理します。移行前の設定・ユーザー・ルールのローカルバックアップは Git 対象外の `backups/auth-migration-20261105/` にあります。バックアップには認証関連の機密情報を含むため、公開・コミットしないでください。
+
+### 検証
+
+```sh
+# 画面・セッションの単体テスト
+npm test -- --watchAll=false --runInBand
+
+# 管理スクリプトの dry-run と出力制限
+node --test scripts/manage-access.test.cjs
+
+# Java 21 と Firebase CLI が必要。ローカルの demo プロジェクトだけで実行する
+firebase emulators:exec --only firestore --config firebase.emulators.json --project demo-slot-diff-auth-tests "npm run test:rules"
+```
+
+### アクセス制限の範囲
+
+- ブラウザからの読み取りは `slot_diff`、`tooltips`、使用中の `config` 2 件、`site777Snapshots` と大当たり履歴に限定します。
+- ブラウザからの書き込みは既存 `slot_diff.data` の更新のみです。店舗・日付などのルート項目や台キーの追加・削除は禁止します。現在は任意の台キーを含む大きなマップのため、許可ユーザーが変更できる台データ内の項目を flag/comment のみに厳密制限することはできません。より細かな編集権限が必要な場合は、注釈を独立ドキュメントへ分離する必要があります。
+- Admin SDK・サービスアカウントによる既存収集処理は Google Cloud IAM で認可され、Firestore Security Rules の対象外です。
+- Hosting の JavaScript、フロアマップなどの静的ファイルや外部サイトの画像 URL 自体を非公開にする仕組みではありません。実データの認可は Firestore 側で実施します。
+
+---
+
 # Getting Started with Create React App
 
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).

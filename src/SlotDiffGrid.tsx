@@ -2708,7 +2708,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
 
   return (
     <>
-      <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div style={{ height: 'calc(100dvh - var(--access-session-bar-height, 0px))', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* 上部タブ */}
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 1, marginBottom: 0 }}>
       <Tabs

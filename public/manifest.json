@@ -19,17 +19,31 @@
       "sizes": "512x512"
     }
   ],
-  "start_url": "/agtmagtm/maruhan_chuou",
-  "scope": "/agtmagtm/",
+  "start_url": "/maruhan_chuou",
+  "scope": "/",
   "display": "standalone",
   "theme_color": "#000000",
   "background_color": "#ffffff",
   "shortcuts": [
-    { "name": "マルハン 浜松中央", "url": "/agtmagtm/maruhan_chuou" },
-    { "name": "マルハン 泉", "url": "/agtmagtm/maruhan_izumi" },
-    { "name": "SUPER CONCORDE 市野", "url": "/agtmagtm/concorde_ichino" },
-    { "name": "楽園 ザザシティ", "url": "/agtmagtm/rakuen_zaza" },
-    { "name": "FROWER CONCORDE 木戸", "url": "/agtmagtm/concorde_kido" }
-
+    {
+      "name": "マルハン 浜松中央",
+      "url": "/maruhan_chuou"
+    },
+    {
+      "name": "マルハン 泉",
+      "url": "/maruhan_izumi"
+    },
+    {
+      "name": "SUPER CONCORDE 市野",
+      "url": "/concorde_ichino"
+    },
+    {
+      "name": "楽園 ザザシティ",
+      "url": "/rakuen_zaza"
+    },
+    {
+      "name": "FROWER CONCORDE 木戸",
+      "url": "/concorde_kido"
+    }
   ]
 }

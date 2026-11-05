@@ -1,0 +1,117 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function verifiedGoogleUser() {
+      return signedIn()
+        && request.auth.token.firebase.sign_in_provider == 'google.com'
+        && request.auth.token.email_verified == true
+        && request.auth.token.email is string;
+    }
+
+    function allowedUser() {
+      return verifiedGoogleUser()
+        && get(/databases/$(database)/documents/allowedEmails/$(request.auth.token.email.lower())).data.enabled == true;
+    }
+
+    function hasAuthTime() {
+      return signedIn()
+        && request.auth.token.auth_time is int
+        && request.auth.token.auth_time >= 0;
+    }
+
+    function sessionIsActive(data) {
+      return data.lastActiveAt is timestamp
+        && data.lastActiveAt <= request.time
+        && request.time < data.lastActiveAt + duration.value(7, 'd');
+    }
+
+    function currentSessionIsActive() {
+      return hasAuthTime()
+        && sessionIsActive(get(/databases/$(database)/documents/authSessions/$(request.auth.uid)/sessions/$(string(request.auth.token.auth_time))).data);
+    }
+
+    function canAccessData() {
+      return allowedUser() && currentSessionIsActive();
+    }
+
+    match /allowedEmails/{email} {
+      // Only Google-verified identity can read its own authorization status.
+      allow get: if verifiedGoogleUser() && request.auth.token.email.lower() == email;
+      allow list, write: if false;
+    }
+
+    match /authSessions/{uid}/sessions/{sessionId} {
+      function ownsSession() {
+        return hasAuthTime()
+          && request.auth.uid == uid
+          && sessionId == string(request.auth.token.auth_time);
+      }
+
+      function writesServerActivityTime() {
+        return request.resource.data.keys().hasOnly(['lastActiveAt'])
+          && request.resource.data.lastActiveAt == request.time;
+      }
+
+      function recentlyAuthenticated() {
+        let authenticatedAt = timestamp.value(request.auth.token.auth_time * 1000);
+        return authenticatedAt <= request.time
+          && request.time <= authenticatedAt + duration.value(5, 'm');
+      }
+
+      // Expired sessions remain readable for reauthentication UX, but cannot be revived.
+      allow get: if signedIn() && request.auth.uid == uid;
+      allow list, delete: if false;
+      allow create: if allowedUser()
+        && ownsSession()
+        && recentlyAuthenticated()
+        && writesServerActivityTime();
+      allow update: if allowedUser()
+        && ownsSession()
+        && sessionIsActive(resource.data)
+        && writesServerActivityTime();
+    }
+
+    match /slot_diff/{documentId} {
+      allow read: if canAccessData();
+      // Existing clients edit nested flag/comment fields in the data map.
+      // Rules cannot iterate an arbitrary number of dynamic machine keys; authorized
+      // editors can change values inside existing machine entries. Metadata and
+      // adding/removing machines remain protected. Use separate annotation documents
+      // if field-level flag/comment-only permissions are required later.
+      allow update: if canAccessData()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['data'])
+        && request.resource.data.data is map
+        && resource.data.data is map
+        && request.resource.data.data.keys().toSet() == resource.data.data.keys().toSet();
+      allow create, delete: if false;
+    }
+
+    match /tooltips/{documentId} {
+      allow read: if canAccessData();
+      allow write: if false;
+    }
+
+    match /config/{documentId} {
+      allow get: if documentId in ['namecCmbine', 'shortName'] && canAccessData();
+      allow list, write: if false;
+    }
+
+    match /site777Snapshots/{snapshotId} {
+      allow read: if canAccessData();
+      allow write: if false;
+
+      match /oatariHistories/{machineId} {
+        allow read: if canAccessData();
+        allow write: if false;
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
