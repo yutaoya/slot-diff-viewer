@@ -296,3 +296,34 @@ it('restores all 60 normal days when a calendar search finishes after an additio
   expect(screen.getByRole('button', { name: 'マップの追加読み込み' })).toBeEnabled();
   expect(fetchMock).toHaveBeenCalledTimes(3);
 });
+
+it('ignores an old calendar result after a store remount while the new StrictMode instance stays active', async () => {
+  const alert = jest.spyOn(window, 'alert').mockImplementation(() => {});
+  try {
+    const { rerender } = render(<React.StrictMode>
+      <SlotDiffGrid key="old-store" storeId="old-store" />
+    </React.StrictMode>);
+    await waitFor(() => expect(dateColumns()).toHaveLength(30));
+
+    const oldSearch = deferred<any>();
+    fetchMock.mockImplementationOnce(() => oldSearch.promise);
+    fireEvent.click(screen.getByRole('button', { name: '日付検索' }));
+    fireEvent.change(screen.getByLabelText('検索日付'), { target: { value: '2020-01-01' } });
+
+    rerender(<React.StrictMode>
+      <SlotDiffGrid key="new-store" storeId="new-store" />
+    </React.StrictMode>);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('new-store', expect.any(Array)));
+    await waitFor(() => expect(dateColumns()).toHaveLength(30));
+    await act(async () => oldSearch.resolve({}));
+    expect(alert).not.toHaveBeenCalled();
+
+    // StrictMode's setup/cleanup/setup must not leave the new instance marked unmounted.
+    fetchMock.mockResolvedValueOnce({});
+    fireEvent.click(screen.getByRole('button', { name: '日付検索' }));
+    fireEvent.change(screen.getByLabelText('検索日付'), { target: { value: '2020-01-02' } });
+    await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
+  } finally {
+    alert.mockRestore();
+  }
+});

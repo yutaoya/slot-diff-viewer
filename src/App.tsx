@@ -2,6 +2,9 @@ import React, { Suspense } from 'react';
 import { useEffect } from 'react';
 import { Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
 import { AccessGate } from './AccessGate';
+import { AccountControls } from './AccountControls';
+import { StoreSelector } from './StoreSelector';
+import { getStoreLabel } from './stores';
 import { LEGACY_ACCESS_ROOT_PATH, DEFAULT_STORE_ID, getStorePath } from './appAccessPath';
 import './App.css';
 
@@ -9,27 +12,23 @@ const SlotDiffGrid = React.lazy(() =>
   import('./SlotDiffGrid').then((module) => ({ default: module.SlotDiffGrid }))
 );
 
-const STORE_NAME: Record<string, string> = {
-  maruhan_chuou: 'マルハン浜松中央',
-  maruhan_izumi: 'マルハン泉',
-  concorde_ichino: 'SUPER CONCORDE 市野',
-  rakuen_zaza: '楽園 ザザシティ',
-  concorde_kido: 'FLOWERR CONCORDE 木戸',
-};
-
 function StorePage() {
   const params = useParams();
   const storeId = (params.storeId ?? DEFAULT_STORE_ID) as string;
 
   useEffect(() => {
-    const display = STORE_NAME[storeId] ?? storeId;
+    const display = getStoreLabel(storeId);
     document.title = `${display} | ゼッタイニツモレール`;
   }, [storeId]);
 
   return (
     <div style={{ padding: 0 }}>
       <Suspense fallback={null}>
-        <SlotDiffGrid storeId={storeId} />
+        <SlotDiffGrid
+          key={storeId}
+          storeId={storeId}
+          toolbarContent={<><StoreSelector storeId={storeId} /><AccountControls /></>}
+        />
       </Suspense>
     </div>
   );

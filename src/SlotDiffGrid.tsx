@@ -1,5 +1,5 @@
 // src/components/SlotDiffGrid.tsx
-import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import React, { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import {
   ColDef,
@@ -394,6 +394,7 @@ const refreshButtonSx = {
 
 interface Props {
   storeId: string;
+  toolbarContent?: React.ReactNode;
 }
 
 type HistoryDebugEvent = {
@@ -448,10 +449,15 @@ const stringifyHistoryDebugMeta = (meta?: Record<string, unknown>) => {
   }
 };
 
-export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
+export const SlotDiffGrid: React.FC<Props> = ({ storeId, toolbarContent }) => {
   const [columnDefs, setColumnDefs] = useState<ColDef[]>([]);
   const [rowData, setRowData] = useState<any[]>([]);
   const gridRef = useRef<AgGridReact<any>>(null);
+  const mountedRef = useRef(false);
+  useLayoutEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   // ★ 台番別の“元データ”を保持（タブ戻し時に復元するため）
   const numberColDefsRef = useRef<ColDef[]>([]);
@@ -797,9 +803,11 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   }, [displayMetric]);
 
   const scheduleRestoreVerticalScroll = useCallback((top: number) => {
-    if (!top) return;
+    if (!mountedRef.current || !top) return;
     requestAnimationFrame(() => {
+      if (!mountedRef.current) return;
       requestAnimationFrame(() => {
+        if (!mountedRef.current) return;
         const api = gridRef.current?.api as any;
         if (api?.setVerticalScrollPosition) {
           api.setVerticalScrollPosition(top);
@@ -854,6 +862,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   }, [buildGridUiStateKey]);
 
   const applyPendingGridUiRestore = useCallback(() => {
+    if (!mountedRef.current) return false;
     const pending = pendingGridUiRestoreRef.current;
     if (!pending) return false;
     pendingGridUiRestoreRef.current = null;
@@ -882,7 +891,9 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
     }
 
     requestAnimationFrame(() => {
+      if (!mountedRef.current) return;
       requestAnimationFrame(() => {
+        if (!mountedRef.current) return;
         if (typeof pending.scrollTop === 'number') {
           if (typeof api.setVerticalScrollPosition === 'function') {
             api.setVerticalScrollPosition(pending.scrollTop);
@@ -2309,10 +2320,11 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
   };
 
   const handleCalendarDateSelect = async (dateKey: string) => {
-    if (!/^\d{8}$/.test(dateKey) || calendarLoading) return;
+    if (!mountedRef.current || !/^\d{8}$/.test(dateKey) || calendarLoading) return;
     setCalendarLoading(true);
     try {
       const fetchedRaw = await fetchSlotDiffs(storeId, [dateKey]);
+      if (!mountedRef.current) return;
       const normalizedRaw: Record<string, any> = {};
       Object.entries(fetchedRaw ?? {}).forEach(([fetchedDateKey, dateData]) => {
         normalizedRaw[fetchedDateKey] = normalizeDateDataNames(dateData);
@@ -2337,10 +2349,11 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
       setCalendarPickerOpen(false);
       setCalendarModalOpen(false);
     } catch (error) {
+      if (!mountedRef.current) return;
       console.error('Failed to load calendar date data', error);
       window.alert('日付データの取得に失敗しました。');
     } finally {
-      setCalendarLoading(false);
+      if (mountedRef.current) setCalendarLoading(false);
     }
   };
 
@@ -2708,7 +2721,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
 
   return (
     <>
-      <div style={{ height: 'calc(100dvh - var(--access-session-bar-height, 0px))', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+      <div style={{ height: '100dvh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* 上部タブ */}
       <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 1, marginBottom: 0 }}>
       <Tabs
@@ -2835,7 +2848,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
 
       {/* フッターツールバー */}
       <div style={footerToolbarShellStyle}>
-        <div style={footerToolbarScrollerStyle}>
+        <div style={footerToolbarScrollerStyle} role="toolbar" aria-label="表示ツールバー">
           {viewMode === 'floor' ? (
             <div style={footerToolbarBlockStyle}>
               <button
@@ -3097,6 +3110,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId }) => {
               </svg>
             </Button>
           </div>
+          {toolbarContent}
         </div>
       </div>
       </div>

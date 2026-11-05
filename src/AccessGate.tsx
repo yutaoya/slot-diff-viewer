@@ -2,6 +2,7 @@ import React, { ReactNode, useEffect, useRef, useState } from 'react';
 import { GoogleAuthProvider, onIdTokenChanged, signInWithPopup, signOut } from 'firebase/auth';
 import { doc, onSnapshot, Timestamp } from 'firebase/firestore';
 import { auth, db } from './firebase';
+import { AccessAccountContext } from './AccessAccountContext';
 import { AccessDeniedError, AccessSession, isSessionExpired, readAccessSession, SESSION_IDLE_MS, SESSION_TOUCH_INTERVAL_MS, SessionExpiredError, startAccessSession, touchAccessSession } from './authSession';
 import './AccessGate.css';
 
@@ -164,13 +165,13 @@ export function AccessGate({ children }: { children: ReactNode }) {
     finally { setBusy(false); }
   }
 
-  if (phase === 'authorized' && session) return <div className="access-authorized">
-    <div className="access-session-bar">
-      <span title={auth.currentUser?.email ?? ''}>{auth.currentUser?.email}</span>
-      <button type="button" onClick={() => { acceptSession(null); setPhase('signedOut'); setError(''); void signOut(auth); }}>ログアウト</button>
-    </div>
+  if (phase === 'authorized' && session) return <AccessAccountContext.Provider value={{
+    name: auth.currentUser?.displayName?.trim() || auth.currentUser?.email || 'ログインユーザー',
+    email: auth.currentUser?.email ?? '',
+    logout: () => { acceptSession(null); setPhase('signedOut'); setError(''); void signOut(auth); },
+  }}>
     {children}
-  </div>;
+  </AccessAccountContext.Provider>;
 
   return <main className="access-gate" aria-label="ログイン">
     <section className="access-gate__panel">

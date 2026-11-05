@@ -9,6 +9,7 @@ import {
   startAccessSession, touchAccessSession,
 } from './authSession';
 import { AccessGate } from './AccessGate';
+import { AccountControls } from './AccountControls';
 
 jest.mock('./firebase', () => ({ auth: { currentUser: null }, db: {} }));
 jest.mock('firebase/auth', () => ({
@@ -42,7 +43,7 @@ const touch = touchAccessSession as jest.Mock;
 const read = readAccessSession as jest.Mock;
 const logout = signOut as jest.Mock;
 const popup = signInWithPopup as jest.Mock;
-type TestUser = { uid: string; email: string; getIdTokenResult: jest.Mock };
+type TestUser = { uid: string; email: string; displayName?: string | null; getIdTokenResult: jest.Mock };
 let authNext: (user: TestUser | null) => Promise<void>;
 let authError: () => void;
 const stopAuth = jest.fn();
@@ -57,8 +58,8 @@ function deferred<T>() {
   const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
   return { promise, resolve, reject };
 }
-function mountGate() {
-  return render(<AccessGate><div data-testid="private-grid">private data</div></AccessGate>);
+function mountGate(showAccountControls = false) {
+  return render(<AccessGate><div data-testid="private-grid">{showAccountControls ? <AccountControls /> : null}private data</div></AccessGate>);
 }
 async function emitAuth(user: TestUser | null) {
   (auth as any).currentUser = user;
@@ -352,4 +353,30 @@ it('verifies a resumed tab immediately even within the five-minute activity thro
   expect(touch).toHaveBeenCalledTimes(2);
   fireEvent.pointerDown(window);
   expect(touch).toHaveBeenCalledTimes(2);
+});
+
+it('provides the trimmed Google display name to child account controls and hides data immediately on logout', async () => {
+  const user = { ...makeUser(), displayName: '  山田 太郎  ' };
+  begin.mockResolvedValueOnce(baseSession);
+  mountGate(true);
+  await emitAuth(user);
+  expect(screen.getByTitle(user.email)).toHaveTextContent('山田 太郎');
+
+  const pending = deferred<void>();
+  logout.mockReturnValueOnce(pending.promise);
+  fireEvent.click(screen.getByRole('button', { name: 'ログアウト' }));
+  expect(logout).toHaveBeenCalledWith(auth);
+  expect(screen.queryByTestId('private-grid')).not.toBeInTheDocument();
+  expect(screen.queryByTitle(user.email)).not.toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Googleでログイン' })).toBeInTheDocument();
+  await act(async () => { pending.resolve(); });
+});
+
+it('uses the email address in child account controls when the Google display name is blank', async () => {
+  const user = { ...makeUser(), displayName: '   ' };
+  begin.mockResolvedValueOnce(baseSession);
+  mountGate(true);
+  await emitAuth(user);
+  expect(screen.getByTitle(user.email)).toHaveTextContent(user.email);
+  expect(screen.getByRole('button', { name: 'ログアウト' })).toBeInTheDocument();
 });
