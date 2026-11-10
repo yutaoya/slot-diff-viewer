@@ -18,6 +18,7 @@ type Props = {
   okLoading?: boolean;
   saveError?: string | null;
   closeOnMask?: boolean;
+  readOnly?: boolean;
   onFlagChange: (flag: number) => void;
   onCommentChange: (comment: string) => void;
   onOpenMachineData: () => void;
@@ -46,6 +47,7 @@ type Props = {
  * @param props.onCancel キャンセル時コールバック
  * @param props.onOk OK時コールバック
  * @param props.okLoading OK実行中フラグ
+ * @param props.readOnly スナップショットのみの日付を閲覧専用にする
  * @param props.onFlagChange フラグ値変更時コールバック
  * @param props.onCommentChange コメント変更時コールバック
  * @param props.onOpenMachineData 台データモーダル起動コールバック
@@ -72,6 +74,7 @@ export const FlagSettingModal: FC<Props> = ({
   okLoading = false,
   saveError = null,
   closeOnMask = true,
+  readOnly = false,
   onFlagChange,
   onCommentChange,
   onOpenMachineData,
@@ -165,7 +168,7 @@ export const FlagSettingModal: FC<Props> = ({
       onCancel={onCancel}
       maskClosable={closeOnMask && maskClosable}
       footer={null}
-      title="フラグ設定"
+      title={readOnly ? '台データ' : 'フラグ設定'}
       style={{ top: 12 }}
       styles={{
         body: {
@@ -199,40 +202,50 @@ export const FlagSettingModal: FC<Props> = ({
           </p>
         ) : null}
 
-        <Radio.Group onChange={(e) => onFlagChange(Number(e.target.value))} value={selectedFlag}>
-          <Radio value={9} disabled={false}>
-            全台系
-          </Radio>
-          <Radio value={6} disabled={viewMode === 'model'}>
-            設定6
-          </Radio>
-          <Radio value={5} disabled={viewMode === 'model'}>
-            設定56
-          </Radio>
-          <Radio value={4} disabled={viewMode === 'model'}>
-            設定456
-          </Radio>
-          <Radio value={0} disabled={false}>
-            フラグ解除
-          </Radio>
-        </Radio.Group>
+        {readOnly ? (
+          <p style={{ margin: '10px 0', color: '#666' }}>
+            スナップショットデータのためフラグは変更できません。
+          </p>
+        ) : (
+          <>
+            <Radio.Group onChange={(e) => onFlagChange(Number(e.target.value))} value={selectedFlag}>
+              <Radio value={9} disabled={false}>
+                全台系
+              </Radio>
+              <Radio value={6} disabled={viewMode === 'model'}>
+                設定6
+              </Radio>
+              <Radio value={5} disabled={viewMode === 'model'}>
+                設定56
+              </Radio>
+              <Radio value={4} disabled={viewMode === 'model'}>
+                設定456
+              </Radio>
+              <Radio value={0} disabled={false}>
+                フラグ解除
+              </Radio>
+            </Radio.Group>
 
-        <div style={{ marginTop: 10 }}>
-          <Input.TextArea
-            value={selectedComment}
-            onChange={(e) => onCommentChange(e.target.value)}
-            placeholder="コメントを入力"
-            autoSize={{ minRows: 2, maxRows: 4 }}
-            style={{ fontSize: 16, lineHeight: 1.4 }}
-          />
-        </div>
+            <div style={{ marginTop: 10 }}>
+              <Input.TextArea
+                value={selectedComment}
+                onChange={(e) => onCommentChange(e.target.value)}
+                placeholder="コメントを入力"
+                autoSize={{ minRows: 2, maxRows: 4 }}
+                style={{ fontSize: 16, lineHeight: 1.4 }}
+              />
+            </div>
 
-        {saveError ? <p role="alert" style={{ color: '#b42318', margin: '8px 0' }}>{saveError}</p> : null}
+            {saveError ? <p role="alert" style={{ color: '#b42318', margin: '8px 0' }}>{saveError}</p> : null}
+          </>
+        )}
         <div style={{ marginTop: 12, marginBottom: 10, display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <Button onClick={onCancel}>キャンセル</Button>
-          <Button type="primary" loading={okLoading} onClick={() => void onOk()}>
-            OK
-          </Button>
+          <Button onClick={onCancel}>{readOnly ? '閉じる' : 'キャンセル'}</Button>
+          {!readOnly ? (
+            <Button type="primary" loading={okLoading} onClick={() => void onOk()}>
+              OK
+            </Button>
+          ) : null}
         </div>
 
         {viewMode === 'model' ? (

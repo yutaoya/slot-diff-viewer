@@ -68,7 +68,8 @@ export function buildNumberColumns(
   getTooltipColor: (machineNumber: number | string | null | undefined) => string | undefined,
   getTooltipText: (machineNumber: number | string | null | undefined) => string | undefined,
   getSettingHeatmapColor: (row: any, field: string) => string | undefined = () => undefined,
-  isSettingHeatmapActive: () => boolean = () => false
+  isSettingHeatmapActive: () => boolean = () => false,
+  isReadOnlyDate: (field: string) => boolean = () => false
 ): ColDef[] {
   const existingFields = new Set(existing.map(c => c.field));
   const cols: ColDef[] = [];
@@ -247,6 +248,10 @@ export function buildNumberColumns(
           }
         }
 
+        if (isReadOnlyDate(field)) {
+          backgroundColor = '#fff7cc';
+        }
+
         return {
           color,
           fontSize: '0.8em',
@@ -254,7 +259,7 @@ export function buildNumberColumns(
           fontWeight: 'bold',
           textAlign: 'center',
           borderRight: '1px solid #ccc',
-          backgroundColor,
+          backgroundColor: backgroundColor ?? '',
         } as any;
       },
     }));
@@ -286,7 +291,8 @@ export function buildGroupedColumnsForDates(
   resolveDisplayName: (name: string) => string,
   displayMetric: DisplayMetric,
   getSettingHeatmapColor: (row: any, field: string) => string | undefined = () => undefined,
-  isSettingHeatmapActive: () => boolean = () => false
+  isSettingHeatmapActive: () => boolean = () => false,
+  isReadOnlyDate: (field: string) => boolean = () => false
 ): ColDef[] {  const existingFields = new Set(existing.map(c => c.field));
   const cols: ColDef[] = [];
 
@@ -449,6 +455,10 @@ export function buildGroupedColumnsForDates(
         }
       }
 
+      if (isReadOnlyDate(field)) {
+        backgroundColor = '#fff7cc';
+      }
+
       return {
         color,
         fontSize: '0.8em',
@@ -456,7 +466,7 @@ export function buildGroupedColumnsForDates(
         fontWeight: 'bold',
         textAlign: 'center',
         borderRight: '1px solid #ccc',
-        backgroundColor,
+        backgroundColor: backgroundColor ?? '',
       } as any;
     }
   }));
@@ -479,7 +489,8 @@ export function buildTailColumnsForDates(
   todayColumnHeader: string,
   hasTodayDiffData: boolean,
   displayMetric: DisplayMetric,
-  tailRowsForScale: any[]
+  tailRowsForScale: any[],
+  isReadOnlyDate: (field: string) => boolean = () => false
 ): ColDef[] {
   const isGamesMetric = displayMetric === 'games';
   /**
@@ -668,6 +679,10 @@ export function buildTailColumnsForDates(
         backgroundColor = getWinRateHeatmapColor(parsed.winRate);
       }
 
+      if (isReadOnlyDate(date)) {
+        backgroundColor = '#fff7cc';
+      }
+
       return {
         color,
         fontSize: '0.8em',
@@ -676,7 +691,7 @@ export function buildTailColumnsForDates(
         textAlign: 'center',
         whiteSpace: 'normal',
         borderRight: '1px solid #ccc',
-        backgroundColor,
+        backgroundColor: backgroundColor ?? '',
       } as any;
     },
   }));

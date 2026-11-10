@@ -543,6 +543,17 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId, toolbarContent }) => {
 
   // 読み込み済みの「生データ（date => map）」を保持（機種別集計に使用）
   const rawMapRef = useRef<Record<string, any>>({});
+  const snapshotFallbackDatesRef = useRef<Set<string>>(new Set());
+  const isSnapshotFallbackDate = useCallback((dateField: string) => snapshotFallbackDatesRef.current.has(dateField), []);
+  const cacheDateData = useCallback((dateField: string, dateData: any) => {
+    rawMapRef.current[dateField] = dateData;
+    const items = Array.isArray(dateData) ? dateData : Object.values(dateData ?? {});
+    if (items.some((item: any) => item?.isSnapshotFallback === true)) {
+      snapshotFallbackDatesRef.current.add(dateField);
+    } else {
+      snapshotFallbackDatesRef.current.delete(dateField);
+    }
+  }, []);
   const [rawDataVersion, setRawDataVersion] = useState(0);
   const tooltipColorMapRef = useRef<Record<string, string>>({});
   const tooltipTextMapRef = useRef<Record<string, string>>({});
@@ -1307,6 +1318,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId, toolbarContent }) => {
         name: resolveFloorMapDisplayName(String(row?.name ?? row?.modelName ?? '')),
         diff,
         url: floorMapActiveDateField === 'todayDiff' ? null : row?.urls?.[floorMapActiveDateField] ?? null,
+        readOnly: isSnapshotFallbackDate(floorMapActiveDateField),
         flagColor: showJugglerHeatmap ? undefined : floorMapActiveDateField === 'todayDiff' ? undefined : getFloorMapFlagColor(row?.flag?.[floorMapActiveDateField]),
         settingHeatmapColor: getSettingHeatmapColor(row, floorMapActiveDateField),
         tooltipColor: tooltipColorMapRef.current[machineNumber],
@@ -1314,7 +1326,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId, toolbarContent }) => {
       hasTargetDateDataByNumber[machineNumber] = hasData;
     });
     return next;
-  }, [floorMapActiveDateField, floorMapDateField, floorMapShortNameVersion, getSettingHeatmapColor, loadedDates, rawDataVersion, resolveFloorMapDisplayName, showJugglerHeatmap, todayDiffMap, tooltipMapVersion]);
+  }, [floorMapActiveDateField, floorMapDateField, floorMapShortNameVersion, getSettingHeatmapColor, isSnapshotFallbackDate, loadedDates, rawDataVersion, resolveFloorMapDisplayName, showJugglerHeatmap, todayDiffMap, tooltipMapVersion]);
 
   const floorMapMachineOrder = useMemo(() => {
     return Object.keys(floorMapMachineDataByNumber)
@@ -1989,8 +2001,13 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId, toolbarContent }) => {
   const loadDates = async (dates: string[]) => {
     const datesBeforeRequest = Array.from(loadedDatesRef.current);
     const fetchedRaw = await fetchSlotDiffs(storeId, dates);
+    // A successful reload replaces these dates, including removed snapshots.
+    dates.forEach(dateKey => {
+      delete rawMapRef.current[dateKey];
+      snapshotFallbackDatesRef.current.delete(dateKey);
+    });
     Object.entries(fetchedRaw ?? {}).forEach(([dateKey, dateData]) => {
-      rawMapRef.current[dateKey] = normalizeDateDataNames(dateData);
+      cacheDateData(dateKey, normalizeDateDataNames(dateData));
     });
     setRawDataVersion((version) => version + 1);
 
@@ -2199,7 +2216,8 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId, toolbarContent }) => {
       resolveDisplayName,
       displayMetric,
       getSettingHeatmapColor,
-      () => showJugglerHeatmapRef.current
+      () => showJugglerHeatmapRef.current,
+      isSnapshotFallbackDate
     );
     setColumnDefs(groupedCols);
   };
@@ -2229,7 +2247,8 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId, toolbarContent }) => {
       todayColumnHeader,
       hasTodayDiffData && shouldShowToday,
       displayMetric,
-      tailForDisplay
+      tailForDisplay,
+      isSnapshotFallbackDate
     );
 
     setRowData(tailForDisplay);
@@ -2281,7 +2300,8 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId, toolbarContent }) => {
       getTooltipColor,
       getTooltipText,
       getSettingHeatmapColor,
-      () => showJugglerHeatmapRef.current
+      () => showJugglerHeatmapRef.current,
+      isSnapshotFallbackDate
     );
 
     loadedDatesRef.current = new Set(normalizedDateKeys);
@@ -2336,7 +2356,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId, toolbarContent }) => {
       }
 
       Object.entries(normalizedRaw).forEach(([fetchedDateKey, dateData]) => {
-        rawMapRef.current[fetchedDateKey] = dateData;
+        cacheDateData(fetchedDateKey, dateData);
       });
       if (!calendarSearchDateKeyRef.current) {
         calendarNormalLoadedDatesRef.current = Array.from(loadedDatesRef.current);
@@ -2649,6 +2669,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId, toolbarContent }) => {
   // フラグ編集モーダルのOK処理（Firestore更新 + ローカル状態反映）。
   const handleFlagModalOk = useCallback(async () => {
     if (!selectedCell || selectedFlag === null || flagModalSavingRef.current) return;
+    if (selectedCell.field === 'todayDiff' || isSnapshotFallbackDate(selectedCell.field)) return;
     const session = flagModalSessionRef.current;
     flagModalSavingRef.current = true;
     setFlagModalSaving(true);
@@ -2717,7 +2738,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId, toolbarContent }) => {
       flagModalSavingRef.current = false;
       setFlagModalSaving(false);
     }
-  }, [getCurrentVerticalScrollTop, resolveDisplayName, selectedCell, selectedComment, selectedFlag, storeId, flagModalEffectiveMode]);
+  }, [getCurrentVerticalScrollTop, isSnapshotFallbackDate, resolveDisplayName, selectedCell, selectedComment, selectedFlag, storeId, flagModalEffectiveMode]);
 
   return (
     <>
@@ -3566,6 +3587,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId, toolbarContent }) => {
 
       <FlagSettingModal
         open={modalOpen}
+        readOnly={isSnapshotFallbackDate(selectedCell?.field ?? '')}
         selectedCell={selectedCell}
         selectedCellUrl={selectedCellUrl}
         selectedFlag={selectedFlag}

@@ -1,5 +1,5 @@
 import type { ComponentProps } from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { FloorMapView } from './FloorMapView';
 
 const originalFetch = global.fetch;
@@ -66,4 +66,17 @@ it('hides loading controls when additional dates are unavailable', async () => {
   expect(screen.queryByRole('button', { name: 'さらに読み込む' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: '再試行' })).not.toBeInTheDocument();
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+});
+
+it('keeps snapshot data yellow instead of using editable flag or heatmap colors', async () => {
+  (global.fetch as jest.Mock).mockResolvedValue({
+    ok: true,
+    text: async () => '<table class="floor-map-table"><tbody><tr><td data-machine-number="101">101</td><td style="background: #f8fbfd"></td><td style="background: #f8fbfd"></td></tr></tbody></table>',
+  });
+  const props = createProps();
+  const machine = { machineNumber: '101', name: '機種', diff: '100', url: null, flagColor: '#5bd799', settingHeatmapColor: '#f00' };
+  const { container, rerender } = render(<FloorMapView {...props} machineDataByNumber={{ '101': { ...machine, readOnly: true } }} />);
+  await waitFor(() => expect(container.querySelector('.floor-map-diff')).toHaveStyle({ backgroundColor: '#fff7cc' }));
+  rerender(<FloorMapView {...props} machineDataByNumber={{ '101': machine }} />);
+  await waitFor(() => expect(container.querySelector('.floor-map-diff')).toHaveStyle({ backgroundColor: '#5bd799' }));
 });

@@ -6,6 +6,7 @@ import * as repository from './features/slotDiffGrid/slotDiffRepository';
 
 let mockGridProps: any;
 let mockFloorProps: any;
+let mockFlagProps: any;
 
 // Keep the screen's real transformations and async state transitions, replacing
 // only the grid/map widgets and remote IO with small observable boundaries.
@@ -71,18 +72,23 @@ jest.mock('./features/slotDiffGrid/components/FloorMapView', () => ({
   },
 }));
 jest.mock('./features/slotDiffGrid/components/FlagSettingModal', () => ({
-  FlagSettingModal: (props: any) => props.open ? (
-    <div role="dialog" aria-label="フラグ設定">
+  FlagSettingModal: (props: any) => {
+    mockFlagProps = props;
+    return props.open ? (
+    <div role="dialog" aria-label={props.readOnly ? '台データ' : 'フラグ設定'}>
       <output data-testid="modal-machine">{props.selectedCell?.rowData?.machineNumber}</output>
       <output data-testid="modal-flag">{props.selectedFlag}</output>
+      {!props.readOnly ? <>
       <input aria-label="コメント" value={props.selectedComment} onChange={(event) => props.onCommentChange(event.target.value)} />
       <button onClick={() => props.onFlagChange(9)}>全台系</button>
       <button onClick={() => props.onFlagChange(6)}>設定6</button>
       <button onClick={() => props.onFlagChange(0)}>フラグ解除</button>
-      <button onClick={props.onCancel}>キャンセル</button>
       <button disabled={props.okLoading} onClick={() => void props.onOk()}>保存</button>
+      </> : null}
+      <button onClick={props.onCancel}>{props.readOnly ? '閉じる' : 'キャンセル'}</button>
     </div>
-  ) : null,
+  ) : null;
+  },
 }));
 jest.mock('./dataFetcher', () => ({ fetchSlotDiffs: jest.fn() }));
 jest.mock('./features/slotDiffGrid/slotDiffRepository', () => ({
@@ -148,6 +154,7 @@ beforeEach(() => {
   database = {};
   mockGridProps = undefined;
   mockFloorProps = undefined;
+  mockFlagProps = undefined;
   (global as any).fetch = jest.fn().mockResolvedValue({ ok: true });
   (repository.fetchNameCombineMap as jest.Mock).mockResolvedValue({});
   (repository.fetchShortNameMap as jest.Mock).mockResolvedValue({});
@@ -182,6 +189,67 @@ it('loads 30 distinct older days only on explicit request and prevents repeated 
   await act(async () => pending.resolve(dataForDates(addedDates)));
   await waitFor(() => expect(dateColumns()).toHaveLength(60));
   expect(screen.getByRole('button', { name: 'さらに読み込む' })).toBeEnabled();
+});
+
+it('shows fallback dates in yellow and blocks writes even if a stale save callback is invoked', async () => {
+  fetchMock.mockImplementation(async (_storeId, dates: string[]) => {
+    const data = dataForDates(dates);
+    data[dates[0]] = Object.values(data[dates[0]]).map(item => ({ ...item, isSnapshotFallback: true }));
+    return data;
+  });
+  await renderLoadedGrid();
+  const date = fetchMock.mock.calls[0][1][0];
+  const row = mockGridProps.rowData.find((item: any) => String(item.machineNumber) === '101');
+  const column = dateColumns().find((item: any) => item.field === date);
+  expect(column.cellStyle({ value: row[date], data: row, colDef: column }).backgroundColor).toBe('#fff7cc');
+  act(() => column.cellRendererParams.showModal(row[date], row, date));
+  expect(await screen.findByRole('dialog', { name: '台データ' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '保存' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('textbox', { name: 'コメント' })).not.toBeInTheDocument();
+  act(() => { mockFlagProps.onFlagChange(6); });
+  await act(async () => { await mockFlagProps.onOk(); });
+  expect(repository.fetchSlotDiffDateData).not.toHaveBeenCalled();
+  expect(repository.updateNumberModeFlagsAndComment).not.toHaveBeenCalled();
+  expect(repository.updateModelModeFlagsAndComment).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: '閉じる' }));
+
+  fireEvent.click(screen.getByRole('tab', { name: '機種別' }));
+  const modelColumn = dateColumns().find((item: any) => item.field === date);
+  const model = mockGridProps.rowData.find((item: any) => !item.isTotalRow);
+  expect(modelColumn.cellStyle({ value: model[date], data: model, colDef: modelColumn }).backgroundColor).toBe('#fff7cc');
+  act(() => modelColumn.cellRendererParams.showModal(model[date], model, date));
+  expect(await screen.findByRole('dialog', { name: '台データ' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '閉じる' }));
+
+  fireEvent.click(screen.getByRole('tab', { name: 'マップ' }));
+  expect(mockFloorProps.activeDateField).toBe(date);
+  expect(mockFloorProps.machineDataByNumber['101'].readOnly).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: 'map 101' }));
+  expect(await screen.findByRole('dialog', { name: '台データ' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '保存' })).not.toBeInTheDocument();
+});
+
+it('restores editing after a fallback date is fetched again as slot_diff data', async () => {
+  fetchMock.mockImplementationOnce(async (_storeId, dates: string[]) => {
+    const data = dataForDates(dates);
+    data[dates[0]] = Object.values(data[dates[0]]).map(item => ({ ...item, isSnapshotFallback: true }));
+    return data;
+  });
+  await renderLoadedGrid();
+  const date = fetchMock.mock.calls[0][1][0] as string;
+  fireEvent.click(screen.getByRole('tab', { name: 'マップ' }));
+  expect(mockFloorProps.machineDataByNumber['101'].readOnly).toBe(true);
+  fireEvent.click(screen.getByRole('tab', { name: '台番別' }));
+  fireEvent.click(screen.getByRole('button', { name: '日付検索' }));
+  fireEvent.change(screen.getByLabelText('検索日付'), { target: { value: `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6)}` } });
+  await waitFor(() => expect(dateColumns()).toHaveLength(1));
+  fireEvent.click(screen.getByRole('tab', { name: 'マップ' }));
+  await waitFor(() => expect(mockFloorProps.machineDataByNumber['101'].readOnly).toBe(false));
+  await openMapMachine();
+  fireEvent.click(screen.getByRole('button', { name: '設定6' }));
+  fireEvent.click(screen.getByRole('button', { name: '保存' }));
+  await waitFor(() => expect(saveMock).toHaveBeenCalledTimes(1));
+  expect(mockFloorProps.machineDataByNumber['101'].flagColor).toBe('#5bd799');
 });
 
 it('allows retrying the same date range after a failed additional load', async () => {
