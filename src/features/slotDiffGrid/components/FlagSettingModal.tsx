@@ -132,7 +132,7 @@ export const FlagSettingModal: FC<Props> = ({
     ? {
         ...detailSnapshot,
         machineNumber: detailSnapshot.machineNumber ?? selectedCell?.rowData?.machineNumber,
-        name: detailSnapshot.name ?? selectedCell?.rowData?.name ?? selectedCell?.rowData?.modelName,
+        name: selectedCell?.rowData?.name ?? selectedCell?.rowData?.modelName,
         currentDifference: detailSnapshot.currentDifference ?? selectedCell?.value,
       }
     : null;

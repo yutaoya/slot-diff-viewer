@@ -43,7 +43,7 @@ jest.mock('antd', () => ({
       onChange({ format: () => dateKey });
     }} />
   ),
-  Modal: ({ open, children }: any) => open ? <div>{children}</div> : null,
+  Modal: ({ open, title, children }: any) => open ? <div>{typeof title === 'string' ? <h2>{title}</h2> : null}{children}</div> : null,
 }));
 jest.mock('antd/es/date-picker/locale/ja_JP', () => ({}));
 jest.mock('./features/slotDiffGrid/components/JugglerSettingEstimatePanel', () => ({
@@ -151,6 +151,7 @@ async function openMapMachine(number = '101') {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  window.scrollTo = jest.fn();
   database = {};
   mockGridProps = undefined;
   mockFloorProps = undefined;
@@ -227,6 +228,50 @@ it('shows fallback dates in yellow and blocks writes even if a stale save callba
   fireEvent.click(screen.getByRole('button', { name: 'map 101' }));
   expect(await screen.findByRole('dialog', { name: '台データ' })).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: '保存' })).not.toBeInTheDocument();
+});
+
+it('keeps fallback values on the official machine rows, filters, grouped view and map', async () => {
+  const officialName = '最新slot_diffの正式名';
+  fetchMock.mockImplementation(async (_storeId, dates: string[]) => {
+    const data = dataForDates(dates);
+    Object.values(data).forEach(day => Object.values(day).forEach(item => { item.name = officialName; }));
+    data[dates[0]] = Object.values(data[dates[0]]).map(item => ({ ...item, machineNumber: String(item.machineNumber), diff: 500, isSnapshotFallback: true }));
+    return data;
+  });
+  await renderLoadedGrid();
+  const date = fetchMock.mock.calls[0][1][0];
+  const rows = mockGridProps.rowData.filter((row: any) => !row.isTotalRow);
+  expect(rows).toHaveLength(2);
+  expect(rows.every((row: any) => row.name === officialName && row[date] === 500)).toBe(true);
+  fireEvent.mouseDown(screen.getAllByRole('combobox')[0]);
+  fireEvent.click(await screen.findByRole('option', { name: officialName }));
+  expect(mockGridProps.rowData.filter((row: any) => !row.isTotalRow)).toHaveLength(2);
+  fireEvent.click(screen.getByRole('tab', { name: '機種別' }));
+  const groupedRows = mockGridProps.rowData.filter((row: any) => !row.isTotalRow);
+  expect(groupedRows).toHaveLength(1);
+  expect(groupedRows[0].name).toBe(officialName);
+  expect(groupedRows[0][date]).toBe('500(2/2)');
+  fireEvent.click(screen.getByRole('tab', { name: 'マップ' }));
+  expect(mockFloorProps.machineDataByNumber['101']).toMatchObject({ name: officialName, diff: '500', readOnly: true });
+});
+
+it('uses the primary row name in current snapshot details instead of the source abbreviation', async () => {
+  fetchMock.mockImplementation(async (_storeId, dates: string[]) => {
+    const data = dataForDates(dates);
+    Object.values(data).forEach(day => Object.values(day).forEach(item => { item.name = '正式機種名'; }));
+    return data;
+  });
+  (repository.fetchTodaySnapshotDetailMap as jest.Mock).mockResolvedValue({ exists: true, detailMap: {
+    101: { machineNumber: '101', name: 'Lスナップショット略名…', currentDifference: 500 },
+    102: { machineNumber: '102', name: 'Lスナップショット略名…', currentDifference: 700 },
+  } });
+  await renderLoadedGrid();
+  await waitFor(() => expect(mockGridProps.rowData.find((row: any) => String(row.machineNumber) === '101')?.todayDiff).toBe(500));
+  const row = mockGridProps.rowData.find((item: any) => String(item.machineNumber) === '101');
+  const column = mockGridProps.columnDefs.find((item: any) => item.field === 'todayDiff');
+  act(() => column.cellRendererParams.showModal(row.todayDiff, row, 'todayDiff'));
+  expect(await screen.findByRole('heading', { name: '101番台 / 正式機種名' })).toBeInTheDocument();
+  expect(screen.queryByText('Lスナップショット略名…')).not.toBeInTheDocument();
 });
 
 it('restores editing after a fallback date is fetched again as slot_diff data', async () => {

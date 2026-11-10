@@ -31,7 +31,10 @@ node scripts/manage-access.cjs revoke-email --email person@example.com --apply
 1. Firebase Console の Authentication → Sign-in method で Google を有効にし、公開名とサポートメールを設定します。Google OAuth のクライアントシークレットはソースコードに入れません。
 2. 上の管理スクリプトで、利用者の Google メールアドレスを登録します。
 3. 下記テストと `npm run build` を実行します。
-4. `firebase deploy --only firestore:rules,hosting --project pachislot-analyze` でルールと画面を配信します。
+4. `firebase deploy --only firestore:indexes --project pachislot-analyze` でインデックスを作成し、Firebase Console で利用可能になるまで待ちます。
+5. `firebase deploy --only firestore:rules,hosting --project pachislot-analyze` でルールと画面を配信します。
+
+過去日の `slot_diff` がない場合は `site777Snapshots` の数値を閲覧専用で表示します。機種名は店舗の最新 `slot_diff` を台番号で照合して使用し、対応する台がないスナップショット行は表示しません。最新ドキュメントの取得に使う `storeId`・`date` 降順の複合インデックスは `firestore.indexes.json` に定義しています。
 
 ルート URL から利用できます。旧 `/agtmagtm/...` は新しいルートのパスへリダイレクトします。認可ルールは `firestore.rules`、Hosting とルールの参照は `firebase.json` で管理します。移行前の設定・ユーザー・ルールのローカルバックアップは Git 対象外の `backups/auth-migration-20261105/` にあります。バックアップには認証関連の機密情報を含むため、公開・コミットしないでください。
 

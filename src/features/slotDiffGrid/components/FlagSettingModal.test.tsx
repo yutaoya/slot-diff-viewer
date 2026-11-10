@@ -79,6 +79,21 @@ it('keeps the model gallery available in read-only mode', () => {
   expect(screen.queryByRole('button', { name: 'OK' })).not.toBeInTheDocument();
 });
 
+it('uses the selected official machine name for metadata and estimates when the snapshot name is unknown', () => {
+  const props = createProps();
+  const unknownSnapshotName = 'snapshotの不明な略名';
+  render(<FlagSettingModal
+    {...props}
+    readOnly
+    detailSnapshot={{ ...snapshot, name: unknownSnapshotName }}
+  />);
+
+  expect(screen.getByText(snapshot.name)).toBeInTheDocument();
+  expect(screen.queryByText(unknownSnapshotName)).not.toBeInTheDocument();
+  expect(screen.getByText('期待設定チャート')).toBeInTheDocument();
+  expect(screen.getByText('逆算ぶどう確率')).toBeInTheDocument();
+});
+
 it('keeps flag and comment editing and saving enabled by default', () => {
   const props = createProps();
   render(<FlagSettingModal {...props} />);

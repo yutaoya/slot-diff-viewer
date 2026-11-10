@@ -1,5 +1,5 @@
 import dayjs from 'dayjs';
-import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
+import { collection, doc, getDoc, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
 import { db } from './firebase';
 
 function parseSnapshotNumber(value: unknown): number | undefined {
@@ -26,7 +26,6 @@ function snapshotRows(data: unknown): any[] {
       : key;
     // Copy only display fields: snapshot flags/comments must never become editable slot_diff data.
     return [{
-      name: typeof item.name === 'string' ? item.name : undefined,
       machineNumber,
       diff: parseSnapshotNumber(item.currentDifference),
       games: parseSnapshotNumber(item.totalGameCount),
@@ -85,9 +84,33 @@ export async function fetchSlotDiffs(storeId: string, dates: string[]): Promise<
   }));
   const failures = results.filter((result): result is PromiseRejectedResult => result.status === 'rejected');
   if (failures.length > 0) throw failures[0].reason;
+  const latestNamesByMachine = new Map<string, string>();
+  if (results.some(result => result.status === 'fulfilled' && (result.value.rows?.length ?? 0) > 0)) {
+    // Resolve names from the store's latest official document, even outside the requested range.
+    const latestSnapshot = await getDocs(query(
+      collection(db, 'slot_diff'),
+      where('storeId', '==', storeId),
+      orderBy('date', 'desc'),
+      limit(1)
+    ));
+    latestSnapshot.forEach(slotDoc => {
+      const entries = slotDoc.data()?.data;
+      if (!entries || typeof entries !== 'object') return;
+      Object.values(entries).forEach((item: any) => {
+        const machineNumber = item?.machineNumber;
+        if (typeof machineNumber !== 'string' && !(typeof machineNumber === 'number' && Number.isFinite(machineNumber))) return;
+        const machineKey = String(machineNumber).trim();
+        const name = typeof item?.name === 'string' ? item.name.trim() : '';
+        if (machineKey && name) latestNamesByMachine.set(machineKey, name);
+      });
+    });
+  }
   results.forEach(result => {
     if (result.status === 'fulfilled' && result.value.rows !== undefined) {
-      dataMap[result.value.dateKey] = result.value.rows;
+      dataMap[result.value.dateKey] = result.value.rows.flatMap(row => {
+        const name = latestNamesByMachine.get(String(row.machineNumber).trim());
+        return name ? [{ ...row, name }] : [];
+      });
     }
   });
   return dataMap;

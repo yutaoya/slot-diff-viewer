@@ -705,21 +705,23 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId, toolbarContent }) => {
     const slotDiffItem = findPastSlotDiffItemForEstimate(
       dateField,
       machineKey,
-      fallbackSnapshot?.name ?? fallbackName
+      fallbackName
     );
-    if (!slotDiffItem) return fallbackSnapshot;
+    const displayName = String(slotDiffItem?.name ?? fallbackName ?? '').trim() || undefined;
+    const namedSnapshot = fallbackSnapshot ? { ...fallbackSnapshot, name: displayName } : null;
+    if (!slotDiffItem) return namedSnapshot;
 
     const games = parseEstimateNumber(slotDiffItem?.games ?? slotDiffItem?.totalGameCount);
     const bb = parseEstimateNumber(slotDiffItem?.bb ?? slotDiffItem?.bbCount);
     const rb = parseEstimateNumber(slotDiffItem?.rb ?? slotDiffItem?.rbCount);
     const diff = parseEstimateNumber(slotDiffItem?.diff ?? slotDiffItem?.currentDifference);
     const hasSlotDiffEstimateFields = [games, bb, rb, diff].some((value) => value !== null);
-    if (!hasSlotDiffEstimateFields) return fallbackSnapshot;
+    if (!hasSlotDiffEstimateFields) return namedSnapshot;
 
     return {
       ...(fallbackSnapshot ?? {}),
       machineNumber: fallbackSnapshot?.machineNumber ?? slotDiffItem?.machineNumber ?? machineKey,
-      name: fallbackSnapshot?.name ?? slotDiffItem?.name ?? fallbackName,
+      name: displayName,
       currentDifference: diff !== null ? diff : fallbackSnapshot?.currentDifference,
       totalGameCount: games !== null ? String(games) : fallbackSnapshot?.totalGameCount,
       bbCount: bb !== null ? String(bb) : fallbackSnapshot?.bbCount,
@@ -729,6 +731,16 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId, toolbarContent }) => {
       combinedProbability: slotDiffItem?.combinedProbability ?? fallbackSnapshot?.combinedProbability,
     };
   }, [findPastSlotDiffItemForEstimate, parseEstimateNumber]);
+
+  const getCurrentMachineName = useCallback((machineKey: string): string | undefined => {
+    const rows = numberRowDataRef.current.filter(row => !row?.isTotalRow && String(row?.machineNumber ?? '') === machineKey);
+    const dates = Array.from(loadedDatesRef.current).sort((a, b) => b.localeCompare(a));
+    const hasValue = (value: unknown) => value !== undefined && value !== null && value !== '-';
+    const row = rows.find(item => hasValue(item.todayDiff))
+      ?? dates.map(date => rows.find(item => hasValue(item[date]))).find(Boolean)
+      ?? rows[0];
+    return row?.name ? resolveDisplayName(String(row.name)) : undefined;
+  }, [resolveDisplayName]);
 
   const buildDisplayDataMap = useCallback((source: Record<string, any>, metric: DisplayMetric) => {
     if (metric === 'diff') return source ?? {};
@@ -1468,7 +1480,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId, toolbarContent }) => {
       setTodayDetailAnimName('none');
       setTodayDetailAnimTick((v) => v + 1);
       setTodayDetailMachineKey(machineKey);
-      setTodayDetailItem(snapshot);
+      setTodayDetailItem({ ...snapshot, name: resolveDisplayName(String(row?.name ?? row?.modelName ?? '')) || undefined });
       setTodayDetailModalOpen(true);
       void loadTodayOatariHistory(machineKey, snapshot);
       return;
@@ -1488,7 +1500,7 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId, toolbarContent }) => {
     setFlagModalReturnContext(null);
     flagModalMachineOrderOverrideRef.current = [];
     setModalOpen(true);
-  }, [pushHistoryDebugEvent]);
+  }, [pushHistoryDebugEvent, resolveDisplayName]);
 
   const handleOpenFloorMapMachineDetail = useCallback((machineNumber: string) => {
     if (!floorMapActiveDateField) return;
@@ -1909,10 +1921,10 @@ export const SlotDiffGrid: React.FC<Props> = ({ storeId, toolbarContent }) => {
     setTodayDetailAnimName(direction > 0 ? 'slideLeft' : direction < 0 ? 'slideRight' : 'none');
     setTodayDetailAnimTick((v) => v + 1);
     setTodayDetailMachineKey(machineKey);
-    setTodayDetailItem(snapshot);
+    setTodayDetailItem({ ...snapshot, name: getCurrentMachineName(machineKey) });
     setTodayDetailModalOpen(true);
     void loadTodayOatariHistory(machineKey, snapshot);
-  }, [loadTodayOatariHistory, pushHistoryDebugEvent]);
+  }, [getCurrentMachineName, loadTodayOatariHistory, pushHistoryDebugEvent]);
 
   const moveTodayDetailMachine = useCallback((delta: number) => {
     const machineKey = todayDetailMachineKey;
