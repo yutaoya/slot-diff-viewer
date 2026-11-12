@@ -231,11 +231,11 @@ export function buildNumberColumns(
           color = '#666';
         }
 
-        if (!backgroundColor && settingHeatmapActive) {
-          const settingHeatmapColor = getSettingHeatmapColor(row, field);
-          if (settingHeatmapColor) {
-            backgroundColor = settingHeatmapColor;
-          }
+        const settingHeatmapColor = !backgroundColor && settingHeatmapActive
+          ? getSettingHeatmapColor(row, field)
+          : undefined;
+        if (settingHeatmapColor) {
+          backgroundColor = settingHeatmapColor;
         }
 
         if (!settingHeatmapActive) {
@@ -249,7 +249,7 @@ export function buildNumberColumns(
         }
 
         if (isReadOnlyDate(field)) {
-          backgroundColor = '#fff7cc';
+          backgroundColor = settingHeatmapColor ?? '#fff7cc';
         }
 
         return {
@@ -448,15 +448,15 @@ export function buildGroupedColumnsForDates(
         }
       }
 
-      if (!backgroundColor && settingHeatmapActive) {
-        const settingHeatmapColor = getSettingHeatmapColor(row, field);
-        if (settingHeatmapColor) {
-          backgroundColor = settingHeatmapColor;
-        }
+      const settingHeatmapColor = !backgroundColor && settingHeatmapActive
+        ? getSettingHeatmapColor(row, field)
+        : undefined;
+      if (settingHeatmapColor) {
+        backgroundColor = settingHeatmapColor;
       }
 
       if (isReadOnlyDate(field)) {
-        backgroundColor = '#fff7cc';
+        backgroundColor = settingHeatmapColor ?? '#fff7cc';
       }
 
       return {
@@ -667,20 +667,17 @@ export function buildTailColumnsForDates(
         color = avg >= 0 ? '#4c6cb3' : '#d9333f';
       }
 
-      let backgroundColor: string | undefined;
+      const readOnlyDate = isReadOnlyDate(date);
+      let backgroundColor: string | undefined = readOnlyDate ? '#fff7cc' : undefined;
       if (isMissingLatest(params.data)) {
-        backgroundColor = '#e0e0e0';
+        if (!readOnlyDate) backgroundColor = '#e0e0e0';
         color = '#666';
       } else if (isGamesMetric) {
         if (avg !== null) {
-          backgroundColor = getGamesHeatmapColor(avg, date);
+          backgroundColor = getGamesHeatmapColor(avg, date) ?? backgroundColor;
         }
       } else if (parsed) {
-        backgroundColor = getWinRateHeatmapColor(parsed.winRate);
-      }
-
-      if (isReadOnlyDate(date)) {
-        backgroundColor = '#fff7cc';
+        backgroundColor = getWinRateHeatmapColor(parsed.winRate) ?? backgroundColor;
       }
 
       return {

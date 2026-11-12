@@ -41,9 +41,9 @@ describe('read-only historical date backgrounds', () => {
     expect(getCellStyle(columns, readOnlyDate, row)?.backgroundColor).toBe('');
   });
 
-  it.each(['number', 'model diff', 'model games'])('%s gives yellow priority over flags, heatmaps and missing data', (view) => {
-    const buildColumns = (heatmapActive: boolean) => {
-      const getHeatmapColor = () => '#99aacc';
+  it.each(['number', 'model diff', 'model games'])('%s prioritizes heatmaps over read-only yellow and ignores flags', (view) => {
+    const buildColumns = (heatmapActive: boolean, hasHeatmapColor = true) => {
+      const getHeatmapColor = (row: any) => hasHeatmapColor && !row?.isTotalRow ? '#99aacc' : undefined;
       if (view === 'number') {
         return buildNumberColumns(
           dates, [], () => {}, normalDate, '本日', true, (name) => name,
@@ -67,16 +67,18 @@ describe('read-only historical date backgrounds', () => {
 
     expect(getCellStyle(flagColumns, readOnlyDate, row)?.backgroundColor).toBe('#fff7cc');
     expect(getCellStyle(flagColumns, normalDate, row)?.backgroundColor).toBe('#FFBFC7');
-    expect(getCellStyle(heatmapColumns, readOnlyDate, row)?.backgroundColor).toBe('#fff7cc');
+    expect(getCellStyle(heatmapColumns, readOnlyDate, row)?.backgroundColor).toBe('#99aacc');
     expect(getCellStyle(heatmapColumns, normalDate, row)?.backgroundColor).toBe('#99aacc');
     expect(getCellStyle(heatmapColumns, readOnlyDate, missingRow)?.backgroundColor).toBe('#fff7cc');
     expect(getCellStyle(heatmapColumns, normalDate, missingRow)?.backgroundColor).toBe('#e0e0e0');
     expect(getCellStyle(flagColumns, readOnlyDate, { ...row, isTotalRow: true })?.backgroundColor).toBe('#fff7cc');
+    expect(getCellStyle(heatmapColumns, readOnlyDate, { ...row, isTotalRow: true })?.backgroundColor).toBe('#fff7cc');
+    expect(getCellStyle(buildColumns(true, false), readOnlyDate, row)?.backgroundColor).toBe('#fff7cc');
     expect(getCellStyle(heatmapColumns, 'todayDiff', row)?.backgroundColor).toBe('#99aacc');
     expect(getCellStyle(heatmapColumns, 'todayDiff', missingRow)?.backgroundColor).toBe('#e0e0e0');
   });
 
-  it.each<DisplayMetric>(['diff', 'games'])('tail %s keeps normal heatmaps while coloring read-only dates and totals yellow', (metric) => {
+  it.each<DisplayMetric>(['diff', 'games'])('tail %s prioritizes heatmaps over read-only yellow including totals', (metric) => {
     const row = {
       [normalDate]: metric === 'games' ? 3000 : '100(1/1)',
       [readOnlyDate]: metric === 'games' ? 3000 : '100(1/1)',
@@ -89,11 +91,12 @@ describe('read-only historical date backgrounds', () => {
     const heatmapColor = metric === 'games' ? 'rgba(255, 40, 40, 0.600)' : 'rgba(255, 40, 40, 0.850)';
     const missingRow = { ...row, [normalDate]: '-' };
 
-    expect(getCellStyle(columns, readOnlyDate, row)?.backgroundColor).toBe('#fff7cc');
+    expect(getCellStyle(columns, readOnlyDate, row)?.backgroundColor).toBe(heatmapColor);
     expect(getCellStyle(columns, normalDate, row)?.backgroundColor).toBe(heatmapColor);
     expect(getCellStyle(columns, readOnlyDate, missingRow)?.backgroundColor).toBe('#fff7cc');
     expect(getCellStyle(columns, normalDate, missingRow)?.backgroundColor).toBe('#e0e0e0');
-    expect(getCellStyle(columns, readOnlyDate, { ...row, isTotalRow: true })?.backgroundColor).toBe('#fff7cc');
+    expect(getCellStyle(columns, readOnlyDate, { ...row, isTotalRow: true })?.backgroundColor).toBe(heatmapColor);
+    expect(getCellStyle(columns, readOnlyDate, lowRow)?.backgroundColor).toBe('#fff7cc');
     expect(getCellStyle(columns, 'todayDiff', row)?.backgroundColor).toBe(heatmapColor);
     expect(getCellStyle(columns, 'todayDiff', missingRow)?.backgroundColor).toBe('#e0e0e0');
   });

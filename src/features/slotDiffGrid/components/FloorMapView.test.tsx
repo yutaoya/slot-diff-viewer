@@ -68,7 +68,7 @@ it('hides loading controls when additional dates are unavailable', async () => {
   expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 });
 
-it('keeps snapshot data yellow instead of using editable flag or heatmap colors', async () => {
+it('prioritizes snapshot heatmaps while keeping the yellow fallback and normal flag priority', async () => {
   (global.fetch as jest.Mock).mockResolvedValue({
     ok: true,
     text: async () => '<table class="floor-map-table"><tbody><tr><td data-machine-number="101">101</td><td style="background: #f8fbfd"></td><td style="background: #f8fbfd"></td></tr></tbody></table>',
@@ -76,7 +76,20 @@ it('keeps snapshot data yellow instead of using editable flag or heatmap colors'
   const props = createProps();
   const machine = { machineNumber: '101', name: '機種', diff: '100', url: null, flagColor: '#5bd799', settingHeatmapColor: '#f00' };
   const { container, rerender } = render(<FloorMapView {...props} machineDataByNumber={{ '101': { ...machine, readOnly: true } }} />);
-  await waitFor(() => expect(container.querySelector('.floor-map-diff')).toHaveStyle({ backgroundColor: '#fff7cc' }));
+  const expectDataColor = async (backgroundColor: string) => {
+    await waitFor(() => {
+      expect(container.querySelector('.floor-map-machine-name')).toHaveStyle({ backgroundColor });
+      expect(container.querySelector('.floor-map-diff')).toHaveStyle({ backgroundColor });
+    });
+  };
+  await expectDataColor('#f00');
+
+  rerender(<FloorMapView {...props} machineDataByNumber={{ '101': { ...machine, readOnly: true, settingHeatmapColor: undefined } }} />);
+  await expectDataColor('#fff7cc');
+
   rerender(<FloorMapView {...props} machineDataByNumber={{ '101': machine }} />);
-  await waitFor(() => expect(container.querySelector('.floor-map-diff')).toHaveStyle({ backgroundColor: '#5bd799' }));
+  await expectDataColor('#5bd799');
+
+  rerender(<FloorMapView {...props} machineDataByNumber={{ '101': { ...machine, flagColor: undefined } }} />);
+  await expectDataColor('#f00');
 });

@@ -285,7 +285,9 @@ export const FloorMapView: React.FC<Props> = ({
       const target = verticalTarget ?? horizontalTarget;
 
       if (!target) return;
-      const dataBackgroundColor = data.readOnly ? '#fff7cc' : data.flagColor ?? data.settingHeatmapColor;
+      const dataBackgroundColor = data.readOnly
+        ? data.settingHeatmapColor ?? '#fff7cc'
+        : data.flagColor ?? data.settingHeatmapColor;
       writeDataCell(target.machine, data.name, 'floor-map-machine-name', dataBackgroundColor, machineNumber);
       writeDiffCell(target.diff, data.diff, dataBackgroundColor, machineNumber);
     });
