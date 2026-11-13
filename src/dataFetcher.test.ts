@@ -1,5 +1,7 @@
 import { collection, doc, getDoc, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
 import { fetchSlotDiffs } from './dataFetcher';
+import { transformToGridData, transformToGroupedGridData, transformToTailGridData } from './dataTransformer';
+import { applyGroupedDateMetricCells, applyTodayDiffToRows } from './features/slotDiffGrid/gridUtils';
 
 jest.mock('./firebase', () => ({ db: {} }));
 jest.mock('firebase/firestore', () => ({
@@ -126,6 +128,51 @@ it('uses the snapshot map key when the machine number is absent and preserves re
   expect(result['20261110'][0]).toMatchObject({
     machineNumber: '501', diff: 0, games: 0, bb: 0, rb: 0, bbProbability: 0, isSnapshotFallback: true,
   });
+});
+
+it.each([0, '0', '0回', '0G'])('treats an unplayed snapshot with null difference and %s games as zero medals', async games => {
+  const source = Object.freeze({ machineNumber: '501', currentDifference: null, totalGameCount: games, bbCount: '0回', rbCount: '0回' });
+  readSnapshot.mockResolvedValue(documentSnapshot({ data: { 501: source } }));
+  const result = await fetchSlotDiffs('store-a', ['20261110']);
+  expect(result['20261110'][0]).toMatchObject({
+    name: 'Official zero', machineNumber: '501', diff: 0, games: 0, bb: 0, rb: 0, isSnapshotFallback: true,
+  });
+  expect(source.currentDifference).toBeNull();
+});
+
+it.each([null, undefined, '', '--', 'unknown', 100, '100回'])
+('keeps an unavailable difference missing when games are not explicitly zero (%s)', async games => {
+  readSnapshot.mockResolvedValue(documentSnapshot({ data: {
+    501: { currentDifference: null, totalGameCount: games, bbCount: 0, rbCount: 0 },
+  } }));
+  const result = await fetchSlotDiffs('store-a', ['20261110']);
+  expect(result['20261110'][0].diff).toBeUndefined();
+});
+
+it('preserves a measured difference even when the game counter is zero', async () => {
+  readSnapshot.mockResolvedValue(documentSnapshot({ data: {
+    501: { currentDifference: '-1,234枚', totalGameCount: '0回' },
+  } }));
+  const result = await fetchSlotDiffs('store-a', ['20261110']);
+  expect(result['20261110'][0]).toMatchObject({ diff: -1234, games: 0 });
+});
+
+it('keeps unplayed machines in today values, totals and grouped averages after fallback', async () => {
+  readLatestSlotDiffs.mockResolvedValue(querySnapshot({ date: 20261111, data: {
+    1: { machineNumber: 1, name: 'Official model' },
+    501: { machineNumber: 501, name: 'Official model' },
+  } }));
+  readSnapshot.mockResolvedValue(documentSnapshot({ data: {
+    1: { currentDifference: 100, totalGameCount: '1,000回', bbCount: '1回', rbCount: '1回' },
+    501: { currentDifference: null, totalGameCount: '0回', bbCount: '0回', rbCount: '0回' },
+  } }));
+  const allData = await fetchSlotDiffs('store-a', ['20261110']);
+  const rows = applyTodayDiffToRows(transformToGridData(allData['20261110'], allData), { 1: 300, 501: 500 }, '20261111');
+  expect(rows.find(row => row.machineNumber === '501')).toMatchObject({ '20261110': 0, todayDiff: 500 });
+  expect(rows.find(row => row.isTotalRow)?.todayDiff).toBe(800);
+  const grouped = applyGroupedDateMetricCells(transformToGroupedGridData(allData['20261110'], allData), allData);
+  expect(grouped.find(row => !row.isTotalRow)?.['20261110']).toBe('50(1/2)');
+  expect(transformToTailGridData(allData).find(row => row.tailLabel === '末尾1')?.['20261110']).toBe('50(1/2)');
 });
 
 it.each([null, undefined, '', '-', 'unknown', NaN, Infinity, -Infinity, 'Infinity', '1e999'])

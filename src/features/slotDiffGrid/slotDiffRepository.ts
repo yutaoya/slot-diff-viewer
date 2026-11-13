@@ -10,6 +10,7 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { db } from '../../firebase';
+import { getSnapshotDifference } from './snapshotValues';
 import type { TodayOatariHistoryRow, TodaySnapshotItem } from './types';
 
 // Firestore 直接アクセスを画面コンポーネントから分離する Repository。
@@ -130,6 +131,7 @@ export async function fetchTodaySnapshotDetailMap(snapshotId: string): Promise<{
     const perMachineStorage = typeof item?.oatariHistoryStorage === 'string' ? item.oatariHistoryStorage : undefined;
     detailMap[machineKey] = {
       ...(item as TodaySnapshotItem),
+      currentDifference: getSnapshotDifference(item),
       oatariHistoryStorage: perMachineStorage ?? rootOatariHistoryStorage,
     };
   });
@@ -234,7 +236,7 @@ export async function fetchSnapshotDetailFromOatariSubcollection(
   const snapshot: TodaySnapshotItem = {
     machineNumber: data?.machineNumber,
     name: data?.name,
-    currentDifference: data?.currentDifference,
+    currentDifference: getSnapshotDifference(data),
     currentUrl: data?.currentUrl,
     graphImageUrl: data?.graphImageUrl,
     dataUpdatedAt: data?.dataUpdatedAt,

@@ -255,6 +255,35 @@ it('keeps fallback values on the official machine rows, filters, grouped view an
   expect(mockFloorProps.machineDataByNumber['101']).toMatchObject({ name: officialName, diff: '500', readOnly: true });
 });
 
+it('keeps zero-game fallback machines visible and opens their read-only details from the grid and map', async () => {
+  fetchMock.mockImplementation(async (_storeId, dates: string[]) => {
+    const data = dataForDates(dates);
+    data[dates[0]] = Object.values(data[dates[0]]).map(item => ({
+      ...item, diff: 0, games: 0, bb: 0, rb: 0, isSnapshotFallback: true,
+    }));
+    return data;
+  });
+  await renderLoadedGrid();
+  const date = fetchMock.mock.calls[0][1][0];
+  const row = mockGridProps.rowData.find((item: any) => String(item.machineNumber) === '101');
+  expect(row[date]).toBe(0);
+  const column = dateColumns().find((item: any) => item.field === date);
+  act(() => column.cellRendererParams.showModal(row[date], row, date));
+  expect(await screen.findByRole('dialog', { name: '台データ' })).toBeInTheDocument();
+  expect(mockFlagProps.selectedCell.value).toBe(0);
+  expect(screen.queryByRole('button', { name: '保存' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '閉じる' }));
+
+  fireEvent.click(screen.getByRole('tab', { name: '機種別' }));
+  expect(mockGridProps.rowData.find((item: any) => !item.isTotalRow)?.[date]).toBe('0(0/2)');
+  fireEvent.click(screen.getByRole('tab', { name: 'マップ' }));
+  expect(mockFloorProps.machineDataByNumber['101']).toMatchObject({ diff: '0', readOnly: true });
+  fireEvent.click(screen.getByRole('button', { name: 'map 101' }));
+  expect(await screen.findByRole('dialog', { name: '台データ' })).toBeInTheDocument();
+  expect(mockFlagProps.selectedCell.value).toBe(0);
+  expect(saveMock).not.toHaveBeenCalled();
+});
+
 it('uses the primary row name in current snapshot details instead of the source abbreviation', async () => {
   fetchMock.mockImplementation(async (_storeId, dates: string[]) => {
     const data = dataForDates(dates);

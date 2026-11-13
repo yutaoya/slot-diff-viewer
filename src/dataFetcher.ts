@@ -1,15 +1,7 @@
 import dayjs from 'dayjs';
 import { collection, doc, getDoc, getDocs, limit, orderBy, query, where } from 'firebase/firestore';
 import { db } from './firebase';
-
-function parseSnapshotNumber(value: unknown): number | undefined {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
-  if (typeof value !== 'string') return undefined;
-  const numericText = value.trim().replace(/,/g, '').replace(/(?:枚|回|G)$/i, '').trim();
-  if (!/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(numericText)) return undefined;
-  const parsed = Number(numericText);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
+import { getSnapshotDifference, parseSnapshotNumber } from './features/slotDiffGrid/snapshotValues';
 
 function snapshotProbability(value: unknown): string | number | undefined {
   if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
@@ -27,7 +19,7 @@ function snapshotRows(data: unknown): any[] {
     // Copy only display fields: snapshot flags/comments must never become editable slot_diff data.
     return [{
       machineNumber,
-      diff: parseSnapshotNumber(item.currentDifference),
+      diff: getSnapshotDifference(item),
       games: parseSnapshotNumber(item.totalGameCount),
       bb: parseSnapshotNumber(item.bbCount),
       rb: parseSnapshotNumber(item.rbCount),
