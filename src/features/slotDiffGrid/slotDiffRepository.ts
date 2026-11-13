@@ -131,7 +131,6 @@ export async function fetchTodaySnapshotDetailMap(snapshotId: string): Promise<{
     const perMachineStorage = typeof item?.oatariHistoryStorage === 'string' ? item.oatariHistoryStorage : undefined;
     detailMap[machineKey] = {
       ...(item as TodaySnapshotItem),
-      currentDifference: getSnapshotDifference(item),
       oatariHistoryStorage: perMachineStorage ?? rootOatariHistoryStorage,
     };
   });

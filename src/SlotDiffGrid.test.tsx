@@ -303,6 +303,37 @@ it('uses the primary row name in current snapshot details instead of the source 
   expect(screen.queryByText('Lスナップショット略名…')).not.toBeInTheDocument();
 });
 
+it('keeps current unplayed differences as dashes while retaining historical fallback zeroes and measured zeroes', async () => {
+  fetchMock.mockImplementation(async (_storeId, dates: string[]) => {
+    const data = dataForDates(dates);
+    data[dates[0]] = Object.values(data[dates[0]]).map(item => ({
+      ...item, diff: 0, games: 0, isSnapshotFallback: true,
+    }));
+    return data;
+  });
+  (repository.fetchTodaySnapshotDetailMap as jest.Mock).mockResolvedValue({ exists: true, detailMap: {
+    101: { machineNumber: '101', currentDifference: null, totalGameCount: '0回' },
+    102: { machineNumber: '102', currentDifference: 0, totalGameCount: '850回' },
+  } });
+  await renderLoadedGrid();
+  await waitFor(() => expect(mockGridProps.rowData.find((row: any) => String(row.machineNumber) === '102')?.todayDiff).toBe(0));
+  const date = fetchMock.mock.calls[0][1][0];
+  const unplayed = mockGridProps.rowData.find((row: any) => String(row.machineNumber) === '101');
+  expect(unplayed).toMatchObject({ [date]: 0, todayDiff: '-' });
+  const todayColumn = mockGridProps.columnDefs.find((column: any) => column.field === 'todayDiff');
+  expect(todayColumn.valueFormatter({ value: unplayed.todayDiff })).toBe('-');
+
+  fireEvent.click(screen.getByRole('tab', { name: 'マップ' }));
+  act(() => mockFloorProps.onDateFieldChange('todayDiff'));
+  expect(mockFloorProps.machineDataByNumber['101'].diff).toBe('-');
+  expect(mockFloorProps.machineDataByNumber['102'].diff).toBe('0');
+  fireEvent.click(screen.getByRole('button', { name: 'map 101' }));
+  expect(await screen.findByText('本日差枚: -')).toBeInTheDocument();
+
+  act(() => mockFloorProps.onDateFieldChange(date));
+  expect(mockFloorProps.machineDataByNumber['101']).toMatchObject({ diff: '0', readOnly: true });
+});
+
 it('restores editing after a fallback date is fetched again as slot_diff data', async () => {
   fetchMock.mockImplementationOnce(async (_storeId, dates: string[]) => {
     const data = dataForDates(dates);
